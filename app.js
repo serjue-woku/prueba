@@ -2027,18 +2027,54 @@ function asegurarBotonDashboardModulo() {
     const contenido = document.getElementById("contenidoModulo");
     if (!contenido) return;
 
-    const yaExiste = Array.from(contenido.querySelectorAll("button")).some(btn => {
+    const botonesDashboard = Array.from(contenido.querySelectorAll("button")).filter(btn => {
         const texto = (btn.textContent || "").trim().toLowerCase();
-        return texto === "volver al dashboard" || texto === "volver al dashboard";
+        return texto === "volver al dashboard";
     });
-    if (yaExiste || contenido.querySelector("[data-boton-dashboard-modulo='true']")) return;
 
-    const barra = document.createElement("div");
-    barra.setAttribute("data-boton-dashboard-modulo", "true");
-    barra.style.cssText = "display:flex;justify-content:flex-start;gap:10px;margin:0 0 12px 0;";
-    barra.innerHTML = `<button type="button" class="btn-secondary secondary-button" onclick="volverDashboard()">Volver al Dashboard</button>`;
+    let top = contenido.querySelector("[data-boton-dashboard-modulo='top']");
+    let bottom = contenido.querySelector("[data-boton-dashboard-modulo='bottom']");
 
-    contenido.insertBefore(barra, contenido.firstChild);
+    // Reutilizamos el último botón existente del módulo como botón inferior.
+    // Así evitamos duplicados en Vehículo, Escaleras y Resumen.
+    if (!bottom) {
+        const candidatos = botonesDashboard.filter(btn => {
+            if (btn === top) return false;
+            const contenedorMarcado = btn.closest("[data-boton-dashboard-modulo]");
+            return !contenedorMarcado;
+        });
+        if (candidatos.length) {
+            bottom = candidatos[candidatos.length - 1];
+            bottom.setAttribute("data-boton-dashboard-modulo", "bottom");
+        }
+    }
+
+    // Elimina botones Dashboard adicionales que no sean los dos oficiales.
+    botonesDashboard.forEach(btn => {
+        if (btn !== top && btn !== bottom) {
+            const contenedor = btn.closest("[data-boton-dashboard-modulo]");
+            if (!contenedor || (contenedor !== top && contenedor !== bottom)) {
+                btn.remove();
+            }
+        }
+    });
+
+    if (!top) {
+        const barra = document.createElement("div");
+        barra.setAttribute("data-boton-dashboard-modulo", "top");
+        barra.style.cssText = "display:flex;justify-content:flex-start;gap:10px;margin:0 0 12px 0;";
+        barra.innerHTML = `<button type="button" class="btn-secondary secondary-button" onclick="volverDashboard()">Volver al Dashboard</button>`;
+        contenido.insertBefore(barra, contenido.firstChild);
+        top = barra;
+    }
+
+    if (!bottom) {
+        const barra = document.createElement("div");
+        barra.setAttribute("data-boton-dashboard-modulo", "bottom");
+        barra.style.cssText = "display:flex;justify-content:flex-start;gap:10px;margin:16px 0 0 0;";
+        barra.innerHTML = `<button type="button" class="btn-secondary secondary-button" onclick="volverDashboard()">Volver al Dashboard</button>`;
+        contenido.appendChild(barra);
+    }
 }
 
 function inicializarBotonDashboardTodosLosModulos() {
@@ -5699,6 +5735,7 @@ function guardarExtintor() {
             "Módulo Extintor guardado como NO APLICA."
         );
 
+        volverDashboard();
         return;
     }
 
@@ -5792,6 +5829,8 @@ function guardarExtintor() {
     alert(
         "Módulo Extintor completado correctamente."
     );
+
+    volverDashboard();
 
 }
 /* =========================================================
@@ -6406,7 +6445,7 @@ function registrarFotoElementoBotiquin(idElemento) {
         actualizarDashboard();
     });
 }
-function guardarBotiquin() { const b = auditoria.modulos.botiquin; if (b.dispone === null) { alert("Debe indicar si dispone de botiquín en el vehículo."); return; } if (b.dispone === false) { const c = b.controles.disponibilidad; if (!c || !c.descripcion.trim() || !c.medida.trim()) { alert("Al indicar que no se dispone de botiquín debe describir la deficiencia y la medida correctiva."); return; } sincronizarIncidenciaBotiquin("disponibilidad"); b.estado = "COMPLETADO"; actualizarDashboard(); alert("Módulo Botiquín completado con una incidencia."); return; } for (const item of obtenerElementosBotiquin()) { const c = b.elementos[item.id]; actualizarResultadoFechaBotiquin(item.id, false); if (c.resultado === "INCORRECTO" && (!c.descripcion.trim() || !c.medida.trim())) { alert(`Complete la descripción y la medida correctiva de la incidencia del elemento: ${item.nombre}.`); return; } if (c.resultado === "INCORRECTO") sincronizarIncidenciaElementoBotiquin(item.id); } for (const nombre of ["materialBuenEstado", "materialNoCaducado", "comunicacionDeficiencias"]) { const c = b.controles[nombre]; if (!c || !c.resultado) { alert("Debe completar todas las comprobaciones del botiquín."); return; } if (c.resultado === "INCORRECTO" && (!c.descripcion.trim() || !c.medida.trim())) { alert("Complete la descripción y la medida correctiva de las incidencias del botiquín."); return; } sincronizarIncidenciaBotiquin(nombre); } b.estado = "COMPLETADO"; actualizarDashboard(); alert("Módulo Botiquín completado correctamente."); }
+function guardarBotiquin() { const b = auditoria.modulos.botiquin; if (b.dispone === null) { alert("Debe indicar si dispone de botiquín en el vehículo."); return; } if (b.dispone === false) { const c = b.controles.disponibilidad; if (!c || !c.descripcion.trim() || !c.medida.trim()) { alert("Al indicar que no se dispone de botiquín debe describir la deficiencia y la medida correctiva."); return; } sincronizarIncidenciaBotiquin("disponibilidad"); b.estado = "COMPLETADO"; actualizarDashboard(); alert("Módulo Botiquín completado con una incidencia."); volverDashboard(); return; } for (const item of obtenerElementosBotiquin()) { const c = b.elementos[item.id]; actualizarResultadoFechaBotiquin(item.id, false); if (c.resultado === "INCORRECTO" && (!c.descripcion.trim() || !c.medida.trim())) { alert(`Complete la descripción y la medida correctiva de la incidencia del elemento: ${item.nombre}.`); return; } if (c.resultado === "INCORRECTO") sincronizarIncidenciaElementoBotiquin(item.id); } for (const nombre of ["materialBuenEstado", "materialNoCaducado", "comunicacionDeficiencias"]) { const c = b.controles[nombre]; if (!c || !c.resultado) { alert("Debe completar todas las comprobaciones del botiquín."); return; } if (c.resultado === "INCORRECTO" && (!c.descripcion.trim() || !c.medida.trim())) { alert("Complete la descripción y la medida correctiva de las incidencias del botiquín."); return; } sincronizarIncidenciaBotiquin(nombre); } b.estado = "COMPLETADO"; actualizarDashboard(); alert("Módulo Botiquín completado correctamente."); volverDashboard(); }
 
 /* =========================================================
    MÓDULO ESCALERAS
