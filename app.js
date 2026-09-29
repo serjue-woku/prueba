@@ -2392,13 +2392,458 @@ function renderizarResumenFinalizar() {
         </div>
         <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;">
             <button type="button" class="secondary-button" onclick="volverDashboard()">Volver al Dashboard</button>
-            ${fin ? `<button type="button" class="primary-button" disabled>Auditoría FINALIZADA · ${escaparValorResumen(auditoria.id)}</button>` : `<button type="button" class="primary-button" onclick="finalizarAuditoriaDesdeResumen()">FINALIZAR AUDITORÍA</button>`}
+            ${fin ? `<button type="button" class="primary-button" disabled>Auditoría FINALIZADA · ${escaparValorResumen(auditoria.id)}</button><button type="button" class="primary-button" onclick="generarPdfAuditoriaLocal()">Generar PDF</button><button type="button" class="secondary-button" onclick="verPdfAuditoriaLocal()">Ver PDF</button>` : `<button type="button" class="primary-button" onclick="finalizarAuditoriaDesdeResumen()">FINALIZAR AUDITORÍA</button>`}
         </div>`;
 
     configurarCanvasFirmaAuditoria("firmaAuditorCanvas", "auditor");
     configurarCanvasFirmaAuditoria("firmaTrabajadorCanvas", "trabajador");
 }
 
+
+
+/* =========================================================
+   FASE 5A - GENERACIÓN LOCAL DE PDF
+   ========================================================= */
+
+let _jsPdfCargaPromise = null;
+let _ultimoPdfAuditoriaUrl = null;
+
+function cargarJsPdfLocal() {
+    if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
+    if (_jsPdfCargaPromise) return _jsPdfCargaPromise;
+
+    _jsPdfCargaPromise = new Promise((resolve, reject) => {
+        const existente = document.querySelector('script[data-auditoria-jspdf="true"]');
+        if (existente) {
+            existente.addEventListener("load", () => {
+                if (window.jspdf && window.jspdf.jsPDF) resolve(window.jspdf.jsPDF);
+                else reject(new Error("jsPDF no quedó disponible."));
+            }, { once: true });
+            existente.addEventListener("error", () => reject(new Error("No se pudo cargar jsPDF.")), { once: true });
+            return;
+        }
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+        script.async = true;
+        script.dataset.auditoriaJspdf = "true";
+        script.onload = () => {
+            if (window.jspdf && window.jspdf.jsPDF) resolve(window.jspdf.jsPDF);
+            else reject(new Error("jsPDF no quedó disponible."));
+        };
+        script.onerror = () => reject(new Error("No se pudo cargar la librería PDF. Compruebe la conexión a Internet."));
+        document.head.appendChild(script);
+    });
+    return _jsPdfCargaPromise;
+}
+
+function normalizarTextoPdf(valor) {
+    if (valor == null) return "";
+    return String(valor)
+        .replace(/\u00a0/g, " ")
+        .replace(/[\u2013\u2014]/g, "-")
+        .replace(/[\u2018\u2019]/g, "'")
+        .replace(/[\u201c\u201d]/g, '"');
+}
+
+function obtenerResumenBotiquinPdf() {
+    const b = auditoria.modulos.botiquin || {};
+    const resultado = [];
+    if (b.dispone === false) {
+        resultado.push({ nombre: "Disponibilidad", resultado: "INCORRECTO", detalle: "No se dispone del botiquín requerido." });
+        return resultado;
+    }
+    if (b.dispone !== true) return resultado;
+    try { inicializarBotiquin(); } catch (e) {}
+    obtenerElementosBotiquin().forEach(item => {
+        const c = b.elementos && b.elementos[item.id];
+        if (!c) return;
+        resultado.push({ nombre: item.nombre, resultado: c.resultado || "CORRECTO", detalle: c.fecha ? "Fecha indicada: " + c.fecha : "Sin fecha indicada" });
+    });
+    Object.keys(b.controles || {}).forEach(k => {
+        const c = b.controles[k];
+        if (!c) return;
+        resultado.push({ nombre: "Comprobación general: " + k, resultado: c.resultado || "", detalle: c.observaciones || "" });
+    });
+    return resultado;
+}
+
+function obtenerResumenBasicoPdf() {
+    const v = auditoria.modulos.vehiculo || {};
+    const e = auditoria.modulos.extintor || {};
+    return {
+        vehiculo: {
+            estado: v.estado || "NO_INICIADO",
+            matricula: v.datos && v.datos.matricula || "",
+            marca: v.datos && v.datos.marca || "",
+            modelo: v.datos && v.datos.modelo || "",
+            tipo: v.datos && v.datos.tipo || "",
+            itv: v.datos && v.datos.itv && v.datos.itv.resultado || "",
+            seguro: v.datos && v.datos.seguro && v.datos.seguro.resultado || ""
+        },
+        extintor: {
+            estado: e.estado || "NO_INICIADO",
+            dispone: e.dispone === true ? "SI" : e.dispone === false ? "NO" : "",
+            tipo: e.datos && e.datos.tipo || "",
+            agente: e.datos && e.datos.agente || "",
+            capacidad: e.datos && e.datos.capacidad || "",
+            ubicacion: e.datos && e.datos.ubicacion || "",
+            identificacion: e.datos && e.datos.identificacion || ""
+        }
+    };
+}
+
+function recopilarFotografiasAuditoriaPdf() {
+    const resultado = [];
+    const vistos = new Set();
+    const visitados = new WeakSet();
+
+    function registrar(dataUrl, contexto, objeto) {
+        if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/")) return;
+        if (vistos.has(dataUrl)) return;
+        vistos.add(dataUrl);
+        resultado.push({
+            dataUrl,
+            contexto: normalizarTextoPdf(contexto || "Fotografía"),
+            nombre: normalizarTextoPdf(objeto && (objeto.nombreArchivo || objeto.nombre || objeto.name) || "Fotografía"),
+            descripcion: normalizarTextoPdf(objeto && (objeto.descripcion || objeto.description) || "")
+        });
+    }
+
+    function recorrer(valor, contexto, profundidad) {
+        if (valor == null || profundidad > 12) return;
+        if (typeof valor === "string") {
+            if (valor.startsWith("data:image/")) registrar(valor, contexto, null);
+            return;
+        }
+        if (typeof valor !== "object") return;
+        if (visitados.has(valor)) return;
+        visitados.add(valor);
+
+        if (typeof valor.dataUrl === "string") registrar(valor.dataUrl, contexto, valor);
+        if (typeof valor.dataURL === "string") registrar(valor.dataURL, contexto, valor);
+        if (typeof valor.foto === "string" && valor.foto.startsWith("data:image/")) registrar(valor.foto, contexto, valor);
+        if (valor.foto && typeof valor.foto === "object") {
+            if (typeof valor.foto.dataUrl === "string") registrar(valor.foto.dataUrl, contexto, valor.foto);
+            if (typeof valor.foto.dataURL === "string") registrar(valor.foto.dataURL, contexto, valor.foto);
+        }
+
+        if (Array.isArray(valor)) {
+            valor.forEach((item, i) => recorrer(item, contexto + " #" + (i + 1), profundidad + 1));
+            return;
+        }
+        Object.keys(valor).forEach(clave => {
+            if (clave === "firmas") return;
+            const siguiente = contexto ? contexto + " / " + clave : clave;
+            recorrer(valor[clave], siguiente, profundidad + 1);
+        });
+    }
+
+    recorrer(auditoria, "Auditoría", 0);
+    return resultado;
+}
+
+function crearPdfAuditoriaLocal() {
+    return cargarJsPdfLocal().then(jsPDF => {
+        const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+        const margen = 14;
+        const ancho = 210;
+        const alto = 297;
+        const anchoTexto = ancho - margen * 2;
+        let y = 18;
+        let pagina = 1;
+
+        const fechaHora = () => {
+            const fecha = auditoria.fechaFinalizacion || auditoria.datosGenerales.fecha || "";
+            const hora = auditoria.horaFinalizacion || auditoria.datosGenerales.horaInicio || "";
+            return [fecha, hora].filter(Boolean).join(" ");
+        };
+
+        function encabezado() {
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(9);
+            doc.text("AUDITORÍA DE VEHÍCULOS", margen, 9);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8);
+            doc.text("ID: " + normalizarTextoPdf(auditoria.id), ancho - margen, 9, { align: "right" });
+            doc.setDrawColor(180);
+            doc.line(margen, 11, ancho - margen, 11);
+        }
+
+        function pie() {
+            doc.setDrawColor(200);
+            doc.line(margen, alto - 11, ancho - margen, alto - 11);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7);
+            doc.text("Resumen generado localmente en la aplicación", margen, alto - 6);
+            doc.text("Página " + pagina, ancho - margen, alto - 6, { align: "right" });
+        }
+
+        function nuevaPagina() {
+            pie();
+            doc.addPage();
+            pagina += 1;
+            encabezado();
+            y = 18;
+        }
+
+        function asegurar(altura) {
+            if (y + altura > alto - 17) nuevaPagina();
+        }
+
+        function titulo(texto) {
+            asegurar(12);
+            doc.setFillColor(235, 235, 235);
+            doc.rect(margen, y - 5, anchoTexto, 8, "F");
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(11);
+            doc.text(normalizarTextoPdf(texto), margen + 2, y);
+            y += 8;
+        }
+
+        function linea(label, valor) {
+            const texto = normalizarTextoPdf(label + ": " + (valor || "-"));
+            const lineas = doc.splitTextToSize(texto, anchoTexto);
+            asegurar(lineas.length * 4.5 + 2);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8.5);
+            doc.text(lineas, margen, y);
+            y += lineas.length * 4.5;
+        }
+
+        function parrafo(texto) {
+            const lineas = doc.splitTextToSize(normalizarTextoPdf(texto || ""), anchoTexto);
+            asegurar(Math.max(1, lineas.length) * 4.2 + 2);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(8.2);
+            doc.text(lineas, margen, y);
+            y += Math.max(1, lineas.length) * 4.2 + 1;
+        }
+
+        function tabla(filas, anchos, encabezados) {
+            const altoFila = 6;
+            const xs = [margen];
+            anchos.forEach(w => xs.push(xs[xs.length - 1] + w));
+            function dibujarFila(celdas, esCabecera) {
+                const lineas = celdas.map((c, i) => doc.splitTextToSize(normalizarTextoPdf(c), anchos[i] - 2));
+                const n = Math.max(1, ...lineas.map(a => a.length));
+                const h = Math.max(altoFila, n * 3.7 + 2.3);
+                asegurar(h + 1);
+                if (esCabecera) {
+                    doc.setFillColor(225, 225, 225);
+                    doc.rect(margen, y - 4.2, anchoTexto, h, "F");
+                }
+                doc.setDrawColor(190);
+                doc.rect(margen, y - 4.2, anchoTexto, h);
+                for (let i = 0; i < celdas.length; i++) {
+                    if (i > 0) doc.line(xs[i], y - 4.2, xs[i], y - 4.2 + h);
+                    doc.setFont("helvetica", esCabecera ? "bold" : "normal");
+                    doc.setFontSize(esCabecera ? 7.2 : 6.9);
+                    doc.text(lineas[i], xs[i] + 1, y);
+                }
+                y += h;
+            }
+            dibujarFila(encabezados, true);
+            filas.forEach(f => dibujarFila(f, false));
+            y += 3;
+        }
+
+        function imagen(dataUrl, x, yy, maxW, maxH) {
+            try {
+                const props = doc.getImageProperties(dataUrl);
+                const ratio = props.width / props.height;
+                let w = maxW;
+                let h = w / ratio;
+                if (h > maxH) { h = maxH; w = h * ratio; }
+                asegurar(h + 8);
+                doc.addImage(dataUrl, "JPEG", x, y, w, h, undefined, "FAST");
+                y += h + 4;
+                return true;
+            } catch (e) {
+                try {
+                    const props = doc.getImageProperties(dataUrl);
+                    const ratio = props.width / props.height;
+                    let w = maxW;
+                    let h = w / ratio;
+                    if (h > maxH) { h = maxH; w = h * ratio; }
+                    asegurar(h + 8);
+                    doc.addImage(dataUrl, undefined, x, y, w, h, undefined, "FAST");
+                    y += h + 4;
+                    return true;
+                } catch (e2) { return false; }
+            }
+        }
+
+        encabezado();
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(16);
+        doc.text("RESUMEN DE AUDITORÍA", margen, y);
+        y += 8;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.text("Estado: " + normalizarTextoPdf(auditoria.estado || "BORRADOR"), margen, y);
+        y += 7;
+
+        const datos = auditoria.datosGenerales || {};
+        titulo("1. Datos generales");
+        linea("ID de auditoría", auditoria.id);
+        linea("Fecha / hora", fechaHora());
+        linea("Auditor", datos.auditor);
+        linea("Empresa", datos.empresa);
+        linea("Proyecto", datos.proyecto);
+        linea("Trabajador/auditado", datos.trabajador);
+        linea("DNI/NIE", datos.dniNie);
+        linea("Tipo de personal", datos.tipoPersonal);
+        linea("Actividad", datos.actividad === "OTRA" ? datos.actividadOtra : datos.actividad);
+        const loc = datos.localizacion || {};
+        linea("Localización", [loc.direccion, loc.poblacion, loc.provincia, loc.codigoPostal].filter(Boolean).join(", "));
+        if (loc.latitud != null && loc.longitud != null) linea("Coordenadas", loc.latitud + ", " + loc.longitud);
+
+        titulo("2. Estado de módulos");
+        const mods = obtenerDefinicionModulosResumen();
+        tabla(mods.map(m => [m.nombre, textoEstadoResumen(m.estado)]), [125, 47], ["Módulo", "Estado"]);
+
+        const basico = obtenerResumenBasicoPdf();
+        titulo("3. Vehículo");
+        linea("Estado", textoEstadoResumen(basico.vehiculo.estado));
+        linea("Matrícula", basico.vehiculo.matricula);
+        linea("Marca / modelo", [basico.vehiculo.marca, basico.vehiculo.modelo].filter(Boolean).join(" "));
+        linea("Tipo", basico.vehiculo.tipo);
+        linea("ITV", basico.vehiculo.itv);
+        linea("Seguro", basico.vehiculo.seguro);
+
+        titulo("4. Extintor");
+        linea("Estado", textoEstadoResumen(basico.extintor.estado));
+        linea("Dispone", basico.extintor.dispone);
+        linea("Tipo / agente", [basico.extintor.tipo, basico.extintor.agente].filter(Boolean).join(" / "));
+        linea("Capacidad", basico.extintor.capacidad);
+        linea("Ubicación", basico.extintor.ubicacion);
+        linea("Identificación", basico.extintor.identificacion);
+
+        const epis = obtenerResumenEpis();
+        titulo("5. EPIs y revisiones específicas");
+        if (epis.length) {
+            tabla(epis.map(e => [e.nombre, e.marca, e.modelo, e.identificacion, String(e.controles), e.resultado || "Pendiente"]), [38, 27, 27, 30, 17, 27], ["EPI", "Marca", "Modelo", "Identificación", "Controles", "Veredicto"]);
+        } else parrafo(episEsAplicable() ? "No hay elementos de EPIs registrados." : "EPIs: NO APLICA.");
+
+        const radio = obtenerResumenRadio();
+        titulo("6. RADIO - EPIs específicos");
+        if ((datos.actividad || "") === "RADIO" && radio.length) {
+            tabla(radio.map(e => [e.nombre, e.marca, e.modelo, e.identificacion, e.resultado || "Pendiente"]), [45, 28, 30, 37, 26], ["Equipo", "Marca", "Modelo", "Identificación", "Veredicto"]);
+        } else parrafo((datos.actividad || "") === "RADIO" ? "No hay elementos específicos de RADIO registrados." : "RADIO: NO APLICA por actividad.");
+
+        const escaleras = obtenerResumenEscaleras();
+        titulo("7. Escaleras");
+        if (escaleras.length) {
+            tabla(escaleras.map(e => [e.nombre, e.tipo, e.fabricante, e.modelo, e.identificacion, textoEstadoResumen(e.estado)]), [27, 23, 32, 29, 31, 28], ["Escalera", "Tipo", "Fabricante", "Modelo", "Identificación", "Estado"]);
+        } else parrafo("No hay escaleras registradas.");
+
+        const botiquin = obtenerResumenBotiquinPdf();
+        titulo("8. Botiquín");
+        if (botiquin.length) tabla(botiquin.map(e => [e.nombre, e.resultado, e.detalle]), [75, 35, 60], ["Comprobación", "Resultado", "Detalle"]);
+        else parrafo("No hay datos de botiquín registrados.");
+
+        const incidencias = obtenerResumenIncidencias();
+        titulo("9. Incidencias");
+        if (incidencias.length) {
+            tabla(incidencias.map(i => [i.id || "", i.control || i.subcontrol || i.modulo || "", i.descripcion || "", i.medida || "", i.observaciones || "", (Array.isArray(i.fotografias) ? i.fotografias.length : (i.fotografia ? 1 : 0)).toString()]), [18, 32, 45, 45, 32, 12], ["ID", "Elemento", "Descripción", "Medida correctora", "Observaciones", "Fotos"]);
+        } else parrafo("No hay incidencias registradas.");
+
+        const fotos = recopilarFotografiasAuditoriaPdf();
+        titulo("10. Fotografías");
+        if (fotos.length) {
+            fotos.forEach((f, i) => {
+                asegurar(70);
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(8);
+                doc.text("Fotografía " + (i + 1) + " - " + (f.contexto || f.nombre), margen, y);
+                y += 4;
+                if (f.descripcion) { parrafo(f.descripcion); }
+                imagen(f.dataUrl, margen, y, 80, 58);
+                if (y > alto - 35) nuevaPagina();
+            });
+        } else parrafo("No hay fotografías registradas.");
+
+        titulo("11. Firmas digitales");
+        asegurar(82);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8);
+        doc.text("Firma del auditor", margen, y);
+        doc.text("Firma del trabajador/auditado", 108, y);
+        y += 3;
+        if (auditoria.firmas && auditoria.firmas.auditor) imagen(auditoria.firmas.auditor, margen, y, 82, 45);
+        else parrafo("Firma del auditor no disponible.");
+        const yFirmaTrabajador = y;
+        y = yFirmaTrabajador;
+        if (auditoria.firmas && auditoria.firmas.trabajador) {
+            try {
+                const props = doc.getImageProperties(auditoria.firmas.trabajador);
+                const ratio = props.width / props.height;
+                let w = 82, h = w / ratio;
+                if (h > 45) { h = 45; w = h * ratio; }
+                asegurar(h + 8);
+                doc.addImage(auditoria.firmas.trabajador, undefined, 108, y, w, h, undefined, "FAST");
+            } catch (e) { doc.setFont("helvetica", "normal"); doc.text("Firma no disponible", 108, y + 5); }
+        } else { doc.setFont("helvetica", "normal"); doc.text("Firma del trabajador no disponible.", 108, y + 5); }
+        y += 52;
+        linea("Fecha de finalización", [auditoria.fechaFinalizacion, auditoria.horaFinalizacion].filter(Boolean).join(" "));
+
+        pie();
+        return doc;
+    });
+}
+
+async function obtenerBlobPdfAuditoriaLocal() {
+    const doc = await crearPdfAuditoriaLocal();
+    return { doc, blob: doc.output("blob") };
+}
+
+async function generarPdfAuditoriaLocal() {
+    if (auditoria.estado !== "FINALIZADA") {
+        alert("La auditoría debe estar FINALIZADA para generar el PDF.");
+        return;
+    }
+    if (!resumenTieneFirmas()) {
+        alert("No se puede generar el PDF porque faltan las dos firmas obligatorias.");
+        return;
+    }
+    try {
+        const { blob } = await obtenerBlobPdfAuditoriaLocal();
+        if (_ultimoPdfAuditoriaUrl) URL.revokeObjectURL(_ultimoPdfAuditoriaUrl);
+        _ultimoPdfAuditoriaUrl = URL.createObjectURL(blob);
+        const enlace = document.createElement("a");
+        enlace.href = _ultimoPdfAuditoriaUrl;
+        enlace.download = (auditoria.id || "AUDITORIA") + "_Auditoria_Vehiculo.pdf";
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
+    } catch (error) {
+        console.error(error);
+        alert("No se ha podido generar el PDF local. " + (error && error.message ? error.message : "Compruebe la conexión para cargar la librería PDF."));
+    }
+}
+
+async function verPdfAuditoriaLocal() {
+    if (auditoria.estado !== "FINALIZADA") {
+        alert("La auditoría debe estar FINALIZADA para generar el PDF.");
+        return;
+    }
+    if (!resumenTieneFirmas()) {
+        alert("No se puede generar el PDF porque faltan las dos firmas obligatorias.");
+        return;
+    }
+    try {
+        const { blob } = await obtenerBlobPdfAuditoriaLocal();
+        if (_ultimoPdfAuditoriaUrl) URL.revokeObjectURL(_ultimoPdfAuditoriaUrl);
+        _ultimoPdfAuditoriaUrl = URL.createObjectURL(blob);
+        const ventana = window.open(_ultimoPdfAuditoriaUrl, "_blank", "noopener");
+        if (!ventana) {
+            alert("El navegador ha bloqueado la ventana emergente. Use 'Generar PDF' para descargarlo.");
+        }
+    } catch (error) {
+        console.error(error);
+        alert("No se ha podido generar el PDF local. " + (error && error.message ? error.message : "Compruebe la conexión para cargar la librería PDF."));
+    }
+}
 
 /* =========================================================
    ABRIR MÓDULO
