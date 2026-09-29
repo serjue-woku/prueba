@@ -2142,6 +2142,43 @@ function escaparValorResumen(valor) {
     return escapeHtml(valor == null ? "" : String(valor));
 }
 
+function normalizarEstadoElemento(estado) {
+    return ["ACTIVO", "NO_APLICA", "NO_DISPONIBLE"].includes(estado) ? estado : "ACTIVO";
+}
+function textoEstadoElemento(estado) {
+    return ({ACTIVO:"REVISIÓN / DISPONIBLE",NO_APLICA:"NO APLICA",NO_DISPONIBLE:"NO DISPONIBLE"})[normalizarEstadoElemento(estado)];
+}
+function estiloEstadoElemento(estado) {
+    const e=normalizarEstadoElemento(estado);
+    return e==="NO_APLICA"?"background:#e8e8e8;color:#444;border-color:#999;":e==="NO_DISPONIBLE"?"background:#f7d7d7;color:#8a1f1f;border-color:#c44;":"background:#dff3e3;color:#176b2c;border-color:#4b9b61;";
+}
+function renderizarSelectorEstadoElemento(estado,llamada,nombre){
+    const e=normalizarEstadoElemento(estado); const base="border:1px solid #aaa;border-radius:7px;padding:7px 10px;margin:3px;cursor:pointer;font-weight:600;";
+    const b=(v,t)=>`<button type="button" class="secondary-button" style="${base}${e===v?estiloEstadoElemento(v):"background:#fff;color:#333;"}" onclick="${llamada}'${v}')">${t}</button>`;
+    return `<div class="card" style="margin-top:8px;border:1px solid #ddd;"><div style="font-weight:700;margin-bottom:4px;">Estado del elemento: ${escapeHtml(nombre||"Elemento")}</div><div class="vehicle-help">Seleccione <strong>NO APLICA</strong> cuando por el puesto de trabajo no sea necesario este elemento. Seleccione <strong>NO DISPONIBLE</strong> cuando sea obligatorio y no se disponga de él; se generará automáticamente una inconformidad.</div><div class="vehicle-actions" style="flex-wrap:wrap;align-items:center;">${b("ACTIVO","✓ REVISAR / DISPONIBLE")}${b("NO_APLICA","NO APLICA")}${b("NO_DISPONIBLE","⚠ NO DISPONIBLE")}</div></div>`;
+}
+function crearIncidenciaNoDisponibleEpi(claveEpi,unidad){
+    const def=obtenerEstructuraEpis()[claveEpi]; if(!def||!unidad)return null; const id="EPIS_NO_DISPONIBLE_"+claveEpi+(unidad.id?"_"+unidad.id:""); let i=auditoria.incidencias.find(x=>x.id===id); const nombre=def.nombre+(def.multiple?" #"+(unidad.numero||""):""); const descripcion="El EPI "+nombre+" es obligatorio para el puesto de trabajo y NO está disponible."; const medida="Proporcionar el EPI obligatorio antes de realizar los trabajos y no iniciar la tarea sin el equipo requerido."; if(!i){i={id,origen:"EPIS_DISPONIBILIDAD",modulo:"EPIs",controlClave:claveEpi,unidadId:unidad.id||null,control:nombre,resultado:"NO_DISPONIBLE",descripcion,medida,observaciones:"Inconformidad generada automáticamente por falta de disponibilidad del EPI.",fotografias:[],estado:"ABIERTA"};auditoria.incidencias.push(i);}else{i.resultado="NO_DISPONIBLE";i.descripcion=descripcion;i.medida=medida;i.estado="ABIERTA";} return i;
+}
+function eliminarIncidenciaNoDisponibleEpi(claveEpi,unidad){if(!unidad)return;const id="EPIS_NO_DISPONIBLE_"+claveEpi+(unidad.id?"_"+unidad.id:"");auditoria.incidencias=auditoria.incidencias.filter(i=>i.id!==id);}
+function limpiarIncidenciasElementoEpi(claveEpi,unidad){
+    const def=obtenerEstructuraEpis()[claveEpi]; if(!def||!unidad)return;
+    const unidadId=unidad.id;
+    auditoria.incidencias=auditoria.incidencias.filter(i=>{
+        if(i.id==="EPIS_NO_DISPONIBLE_"+claveEpi+(unidadId?"_"+unidadId:"")) return true;
+        if(i.origen!=="EPIS") return true;
+        if(i.controlClave!==claveEpi) return true;
+        if(def.multiple) return i.unidadId!==unidadId;
+        return !!i.unidadId;
+    });
+    Object.values(unidad.subcontroles||{}).forEach(sub=>{sub.incidenciaId=null;});
+}
+function cambiarEstadoElementoEpi(claveEpi,estado,idUnidad){const control=auditoria.modulos.epis.controles[claveEpi];if(!control)return;const def=obtenerEstructuraEpis()[claveEpi];const unidad=def&&def.multiple?(control.unidades||{})[idUnidad]:control;if(!unidad)return;unidad.estadoElemento=normalizarEstadoElemento(estado);if(unidad.estadoElemento!=="ACTIVO") limpiarIncidenciasElementoEpi(claveEpi,unidad);if(unidad.estadoElemento==="NO_DISPONIBLE")crearIncidenciaNoDisponibleEpi(claveEpi,unidad);else eliminarIncidenciaNoDisponibleEpi(claveEpi,unidad);auditoria.modulos.epis.estado="EN_CURSO";renderizarModuloEpis();actualizarDashboard();}
+function crearIncidenciaNoDisponibleRadio(id){const u=auditoria.modulos.radio.unidades[id];if(!u)return null;const def=obtenerEstructuraRadio()[u.tipo];if(!def)return null;const iid="RADIO_NO_DISPONIBLE_"+id;let i=auditoria.incidencias.find(x=>x.id===iid);const nombre=(def.nombre||u.tipo)+(def.multiple?" #"+(u.numero||""):"");const descripcion="El equipo/EPI específico de RADIO "+nombre+" es obligatorio para el puesto de trabajo y NO está disponible.";const medida="Proporcionar el equipo/EPI obligatorio antes de realizar los trabajos y no iniciar la tarea sin el equipo requerido.";if(!i){i={id:iid,origen:"RADIO_DISPONIBILIDAD",modulo:"RADIO — EPIs específicos",controlClave:u.tipo,unidadId:id,control:nombre,resultado:"NO_DISPONIBLE",descripcion,medida,observaciones:"Inconformidad generada automáticamente por falta de disponibilidad del equipo/EPI de RADIO.",fotografias:[],estado:"ABIERTA"};auditoria.incidencias.push(i);}else{i.resultado="NO_DISPONIBLE";i.descripcion=descripcion;i.medida=medida;i.estado="ABIERTA";}return i;}
+function eliminarIncidenciaNoDisponibleRadio(id){auditoria.incidencias=auditoria.incidencias.filter(i=>i.id!=="RADIO_NO_DISPONIBLE_"+id);}
+function limpiarIncidenciasElementoRadio(id){const u=auditoria.modulos.radio.unidades[id];if(!u)return;auditoria.incidencias=auditoria.incidencias.filter(i=>!(i.origen==="RADIO_EPIS"&&i.unidadId===id));Object.values(u.subcontroles||{}).forEach(sub=>{sub.incidenciaId=null;});}
+function cambiarEstadoElementoRadio(id,estado){const u=auditoria.modulos.radio.unidades[id];if(!u)return;u.estadoElemento=normalizarEstadoElemento(estado);if(u.estadoElemento!=="ACTIVO") limpiarIncidenciasElementoRadio(id);if(u.estadoElemento==="NO_DISPONIBLE")crearIncidenciaNoDisponibleRadio(id);else eliminarIncidenciaNoDisponibleRadio(id);auditoria.modulos.radio.estado="EN_CURSO";renderizarModuloRadio();actualizarDashboard();}
+
 function obtenerResumenEpis() {
     const resultado = [];
     if (!episEsAplicable()) return resultado;
@@ -2162,6 +2199,7 @@ function obtenerResumenEpis() {
             const incorrectos = controles.filter(c => c && c.resultado && ["INCORRECTO", "NO_OK", "M", "R", "MALO", "NO_APTO"].includes(c.resultado)).length;
             resultado.push({
                 nombre: def.nombre + (def.multiple ? " #" + (unidad.numero || indice + 1) : ""),
+                estadoElemento: normalizarEstadoElemento(unidad.estadoElemento),
                 marca, modelo, identificacion,
                 fabricante: revision && revision.fabricante ? revision.fabricante : "",
                 resultado: revision && revision.resultado ? revision.resultado : "",
@@ -2184,6 +2222,7 @@ function obtenerResumenRadio() {
         const controles = Object.values(unidad.revisionFabricante && unidad.revisionFabricante.controles || {});
         resultado.push({
             nombre: (def.nombre || unidad.tipo) + (def.multiple ? " #" + (unidad.numero || "") : ""),
+            estadoElemento: normalizarEstadoElemento(unidad.estadoElemento),
             marca,
             modelo: unidad.campos && unidad.campos.modelo || "",
             identificacion: unidad.campos && (unidad.campos.numeroSerie || unidad.campos.identificacion || unidad.campos.descripcionElemento) || "",
@@ -2288,6 +2327,8 @@ function validarRevisionesEspecificasAntesDeFinalizar() {
             if (!control) return;
             const unidades = def.multiple ? Object.values(control.unidades || {}) : [control];
             unidades.forEach((unidad, idx) => {
+                unidad.estadoElemento = normalizarEstadoElemento(unidad.estadoElemento);
+                if (unidad.estadoElemento !== "ACTIVO") return;
                 const marca = unidad.campos && unidad.campos.marca || "";
                 const config = obtenerConfiguracionRevisionFabricante(marca, claveEpi);
                 if (!config) return;
@@ -2303,6 +2344,8 @@ function validarRevisionesEspecificasAntesDeFinalizar() {
     }
     if ((auditoria.datosGenerales.actividad || "") === "RADIO") {
         Object.values(auditoria.modulos.radio.unidades || {}).forEach(unidad => {
+            unidad.estadoElemento = normalizarEstadoElemento(unidad.estadoElemento);
+            if (unidad.estadoElemento !== "ACTIVO") return;
             const config = obtenerConfiguracionPlantillaRadio(unidad);
             if (!config) return;
             inicializarRevisionFabricante(unidad, config);
@@ -2620,31 +2663,12 @@ function crearPdfAuditoriaLocal() {
         }
 
         function tabla(filas, anchos, encabezados) {
-            const altoFila = 6;
-            const xs = [margen];
-            anchos.forEach(w => xs.push(xs[xs.length - 1] + w));
-            function dibujarFila(celdas, esCabecera) {
-                const lineas = celdas.map((c, i) => doc.splitTextToSize(normalizarTextoPdf(c), anchos[i] - 2));
-                const n = Math.max(1, ...lineas.map(a => a.length));
-                const h = Math.max(altoFila, n * 3.7 + 2.3);
-                asegurar(h + 1);
-                if (esCabecera) {
-                    doc.setFillColor(225, 225, 225);
-                    doc.rect(margen, y - 4.2, anchoTexto, h, "F");
-                }
-                doc.setDrawColor(190);
-                doc.rect(margen, y - 4.2, anchoTexto, h);
-                for (let i = 0; i < celdas.length; i++) {
-                    if (i > 0) doc.line(xs[i], y - 4.2, xs[i], y - 4.2 + h);
-                    doc.setFont("helvetica", esCabecera ? "bold" : "normal");
-                    doc.setFontSize(esCabecera ? 7.2 : 6.9);
-                    doc.text(lineas[i], xs[i] + 1, y);
-                }
-                y += h;
-            }
-            dibujarFila(encabezados, true);
-            filas.forEach(f => dibujarFila(f, false));
-            y += 3;
+            const altoFila = 6; const xs=[margen]; anchos.forEach(w=>xs.push(xs[xs.length-1]+w));
+            const calc=celdas=>{const lineas=celdas.map((c,i)=>doc.splitTextToSize(normalizarTextoPdf(c),anchos[i]-2));const n=Math.max(1,...lineas.map(a=>a.length));return {lineas,h:Math.max(altoFila,n*3.7+2.3)};};
+            const cab=calc(encabezados), datos=filas.map(calc), total=cab.h+datos.reduce((a,r)=>a+r.h,0)+3;
+            if(total <= (alto-17-18) && y+total > alto-17) nuevaPagina();
+            function dibujar(celdas,cabecera,info){const d=info||calc(celdas);if(y+d.h>alto-17){nuevaPagina();if(!cabecera)dibujar(encabezados,true,cab);}if(cabecera){doc.setFillColor(225,225,225);doc.rect(margen,y-4.2,anchoTexto,d.h,"F");}doc.setDrawColor(190);doc.rect(margen,y-4.2,anchoTexto,d.h);for(let i=0;i<celdas.length;i++){if(i>0)doc.line(xs[i],y-4.2,xs[i],y-4.2+d.h);doc.setFont("helvetica",cabecera?"bold":"normal");doc.setFontSize(cabecera?7.2:6.9);doc.text(d.lineas[i],xs[i]+1,y);}y+=d.h;}
+            dibujar(encabezados,true,cab);filas.forEach((f,i)=>dibujar(f,false,datos[i]));y+=3;
         }
 
         function imagen(dataUrl, x, yy, maxW, maxH) {
@@ -2722,13 +2746,13 @@ function crearPdfAuditoriaLocal() {
         const epis = obtenerResumenEpis();
         titulo("5. EPIs y revisiones específicas");
         if (epis.length) {
-            tabla(epis.map(e => [e.nombre, e.marca, e.modelo, e.identificacion, String(e.controles), e.resultado || "Pendiente"]), [38, 27, 27, 30, 17, 27], ["EPI", "Marca", "Modelo", "Identificación", "Controles", "Veredicto"]);
+            tabla(epis.map(e => [e.nombre, textoEstadoElemento(e.estadoElemento), e.marca, e.modelo, e.identificacion, e.estadoElemento === "ACTIVO" ? String(e.controles) : "—", e.estadoElemento === "ACTIVO" ? (e.resultado || "Pendiente") : "—"]), [30,26,22,22,27,15,40], ["EPI","Estado","Marca","Modelo","Identificación","Controles","Veredicto"]);
         } else parrafo(episEsAplicable() ? "No hay elementos de EPIs registrados." : "EPIs: NO APLICA.");
 
         const radio = obtenerResumenRadio();
         titulo("6. RADIO - EPIs específicos");
         if ((datos.actividad || "") === "RADIO" && radio.length) {
-            tabla(radio.map(e => [e.nombre, e.marca, e.modelo, e.identificacion, e.resultado || "Pendiente"]), [45, 28, 30, 37, 26], ["Equipo", "Marca", "Modelo", "Identificación", "Veredicto"]);
+            tabla(radio.map(e => [e.nombre, textoEstadoElemento(e.estadoElemento), e.marca, e.modelo, e.identificacion, e.estadoElemento === "ACTIVO" ? (e.resultado || "Pendiente") : "—"]), [32,26,22,25,38,39], ["Equipo","Estado","Marca","Modelo","Identificación","Veredicto"]);
         } else parrafo((datos.actividad || "") === "RADIO" ? "No hay elementos específicos de RADIO registrados." : "RADIO: NO APLICA por actividad.");
 
         const escaleras = obtenerResumenEscaleras();
@@ -7711,7 +7735,8 @@ function crearUnidadRadio(tipo, numero) {
         numero: numero || 1,
         campos: {},
         subcontroles: {},
-        revisionFabricante: crearRevisionFabricanteVacia()
+        revisionFabricante: crearRevisionFabricanteVacia(),
+        estadoElemento: "ACTIVO"
     };
 
     Object.keys(definicion.campos || {}).forEach(campo => {
@@ -7755,6 +7780,7 @@ function inicializarRadio() {
         if (!definicion) return;
 
         if (!unidad.campos || typeof unidad.campos !== "object") unidad.campos = {};
+        unidad.estadoElemento = normalizarEstadoElemento(unidad.estadoElemento);
         inicializarRevisionFabricante(unidad, obtenerConfiguracionPlantillaRadio(unidad));
         Object.keys(definicion.campos || {}).forEach(campo => {
             if (typeof unidad.campos[campo] !== "string") unidad.campos[campo] = "";
@@ -7983,7 +8009,10 @@ function renderizarControlRadio(id, claveSub, definicion, sub) {
 
 function renderizarUnidadRadio(unidad) {
     const definicion = obtenerEstructuraRadio()[unidad.tipo];
-    let html = `<div class="card epi-card radio-epi-card"><h3>${escapeHtml(definicion.nombre)}${definicion.multiple ? " #" + unidad.numero : ""}</h3>`;
+    unidad.estadoElemento = normalizarEstadoElemento(unidad.estadoElemento);
+    const nombreElemento = (definicion.nombre || unidad.tipo) + (definicion.multiple ? " #" + unidad.numero : "");
+    let html = `<div class="card epi-card radio-epi-card"><h3>${escapeHtml(nombreElemento)}</h3>`;
+    html += renderizarSelectorEstadoElemento(unidad.estadoElemento, `cambiarEstadoElementoRadio('${unidad.id}', `, nombreElemento);
 
     if (definicion.multiple && unidad.tipo === "otros") {
         html += `<p class="vehicle-help">Describa el elemento adicional de Radio.</p>`;
@@ -8001,14 +8030,17 @@ function renderizarUnidadRadio(unidad) {
         html += `</div></div>`;
     }
 
-    Object.keys(definicion.controles).forEach(claveSub => {
-        html += renderizarControlRadio(unidad.id, claveSub, definicion.controles[claveSub], unidad.subcontroles[claveSub]);
-    });
-
-    const configRadioFabricante = obtenerConfiguracionPlantillaRadio(unidad);
-    if (configRadioFabricante) {
-        inicializarRevisionFabricante(unidad);
-        html += renderizarRevisionFabricante(unidad, unidad.tipo, unidad.id, configRadioFabricante);
+    if (unidad.estadoElemento === "ACTIVO") {
+        Object.keys(definicion.controles).forEach(claveSub => {
+            html += renderizarControlRadio(unidad.id, claveSub, definicion.controles[claveSub], unidad.subcontroles[claveSub]);
+        });
+        const configRadioFabricante = obtenerConfiguracionPlantillaRadio(unidad);
+        if (configRadioFabricante) {
+            inicializarRevisionFabricante(unidad);
+            html += renderizarRevisionFabricante(unidad, unidad.tipo, unidad.id, configRadioFabricante);
+        }
+    } else {
+        html += `<div class="vehicle-help" style="margin-top:8px;"><strong>${textoEstadoElemento(unidad.estadoElemento)}</strong>${unidad.estadoElemento === "NO_DISPONIBLE" ? " — se ha generado automáticamente una inconformidad." : " — no se realizan los controles de este elemento."}</div>`;
     }
 
     if (definicion.multiple) {
@@ -8101,6 +8133,12 @@ function guardarRadio() {
     for (const unidad of Object.values(radio.unidades)) {
         const definicion = obtenerEstructuraRadio()[unidad.tipo];
         if (!definicion) continue;
+        unidad.estadoElemento = normalizarEstadoElemento(unidad.estadoElemento);
+        if (unidad.estadoElemento !== "ACTIVO") {
+            if (unidad.estadoElemento === "NO_DISPONIBLE") crearIncidenciaNoDisponibleRadio(unidad.id);
+            else eliminarIncidenciaNoDisponibleRadio(unidad.id);
+            continue;
+        }
 
         if (unidad.tipo === "otros" && !String(unidad.campos.descripcionElemento || "").trim()) {
             alert("Debe indicar la descripción del elemento en el apartado OTROS.");
@@ -9452,7 +9490,8 @@ function crearUnidadEpiMultiple(claveEpi, numero) {
         numero: numero || 1,
         campos: {},
         subcontroles: {},
-        revisionFabricante: crearRevisionFabricanteVacia()
+        revisionFabricante: crearRevisionFabricanteVacia(),
+        estadoElemento: "ACTIVO"
     };
 
     Object.keys(definicion.campos || {}).forEach(campo => {
@@ -9520,6 +9559,7 @@ function inicializarEpis() {
 
             Object.values(control.unidades).forEach(unidad => {
                 if (!unidad.campos || typeof unidad.campos !== "object") unidad.campos = {};
+                unidad.estadoElemento = normalizarEstadoElemento(unidad.estadoElemento);
                 Object.keys(definicion.campos || {}).forEach(campo => {
                     if (typeof unidad.campos[campo] !== "string") unidad.campos[campo] = "";
                 });
@@ -9570,6 +9610,7 @@ function inicializarEpis() {
         if (!control.campos || typeof control.campos !== "object") {
             control.campos = {};
         }
+        control.estadoElemento = normalizarEstadoElemento(control.estadoElemento);
 
         Object.keys(definicion.campos || {}).forEach(campo => {
             if (typeof control.campos[campo] !== "string") {
@@ -9694,7 +9735,9 @@ function renderizarModuloEpis() {
         const nombre = definicionEpi.nombre;
         const subcontroles = definicionEpi.controles;
 
+        controlEpi.estadoElemento = normalizarEstadoElemento(controlEpi.estadoElemento);
         html += `<div class="card epi-card"><h3>${escapeHtml(nombre)}</h3>`;
+        html += renderizarSelectorEstadoElemento(controlEpi.estadoElemento, `cambiarEstadoElementoEpi('${claveEpi}', `, nombre);
 
         const camposEpi = definicionEpi.campos || {};
         const configFabricante = obtenerConfiguracionPlantillaFabricante(controlEpi.campos ? controlEpi.campos.marca : "", claveEpi);
@@ -9713,10 +9756,14 @@ function renderizarModuloEpis() {
 
         html += renderizarEstadoDocumentalEpi(controlEpi.campos ? controlEpi.campos.marca : "", claveEpi);
 
-        Object.keys(subcontroles).forEach(claveSub => {
-            html += renderizarControlEpi(claveEpi, claveSub, subcontroles[claveSub], controlEpi.subcontroles[claveSub]);
-        });
-        html += renderizarRevisionFabricante(controlEpi, claveEpi);
+        if (controlEpi.estadoElemento === "ACTIVO") {
+            Object.keys(subcontroles).forEach(claveSub => {
+                html += renderizarControlEpi(claveEpi, claveSub, subcontroles[claveSub], controlEpi.subcontroles[claveSub]);
+            });
+            html += renderizarRevisionFabricante(controlEpi, claveEpi);
+        } else {
+            html += `<div class="vehicle-help" style="margin-top:8px;"><strong>${textoEstadoElemento(controlEpi.estadoElemento)}</strong>${controlEpi.estadoElemento === "NO_DISPONIBLE" ? " — se ha generado automáticamente una inconformidad." : " — no se realizan los controles de este elemento."}</div>`;
+        }
         html += `</div>`;
     });
 
@@ -9756,7 +9803,10 @@ function renderizarControlEpi(claveEpi, claveSub, definicion, sub) {
 
 function renderizarUnidadEpiMultiple(claveEpi, unidad) {
     const definicion = obtenerEstructuraEpis()[claveEpi];
-    let html = `<div class="card epi-card"><h4>${escapeHtml(definicion.nombre)} #${unidad.numero}</h4>`;
+    unidad.estadoElemento = normalizarEstadoElemento(unidad.estadoElemento);
+    const nombreElemento = definicion.nombre + " #" + unidad.numero;
+    let html = `<div class="card epi-card"><h4>${escapeHtml(nombreElemento)}</h4>`;
+    html += renderizarSelectorEstadoElemento(unidad.estadoElemento, `cambiarEstadoElementoEpi('${claveEpi}', `, nombreElemento);
     html += `<div class="card epi-identificacion"><h4>Datos del elemento</h4><div class="form-grid">`;
     Object.keys(definicion.campos || {}).forEach(campo => {
         const esFecha = ["fechaFabricacion", "fechaCompra", "fechaPrimerUso"].includes(campo);
@@ -9766,10 +9816,14 @@ function renderizarUnidadEpiMultiple(claveEpi, unidad) {
         html += `<div class="field"><label>${escapeHtml(definicion.campos[campo])}${campo === "descripcionElemento" ? " *" : ""}</label><input type="${esFecha ? "date" : "text"}" value="${escapeHtml(unidad.campos[campo] || "")}" ${eventoCampo}></div>`;
     });
     html += `</div></div>`;
-    Object.keys(definicion.controles).forEach(claveSub => {
-        html += renderizarControlEpiMultiple(claveEpi, unidad.id, claveSub, definicion.controles[claveSub], unidad.subcontroles[claveSub]);
-    });
-    html += renderizarRevisionFabricante(unidad, claveEpi, unidad.id);
+    if (unidad.estadoElemento === "ACTIVO") {
+        Object.keys(definicion.controles).forEach(claveSub => {
+            html += renderizarControlEpiMultiple(claveEpi, unidad.id, claveSub, definicion.controles[claveSub], unidad.subcontroles[claveSub]);
+        });
+        html += renderizarRevisionFabricante(unidad, claveEpi, unidad.id);
+    } else {
+        html += `<div class="vehicle-help" style="margin-top:8px;"><strong>${textoEstadoElemento(unidad.estadoElemento)}</strong>${unidad.estadoElemento === "NO_DISPONIBLE" ? " — se ha generado automáticamente una inconformidad." : " — no se realizan los controles de este elemento."}</div>`;
+    }
     html += `<div class="vehicle-actions"><button type="button" class="btn-secondary" onclick="eliminarUnidadEpi('${claveEpi}', '${unidad.id}')">Eliminar este elemento</button></div></div>`;
     return html;
 }
@@ -10165,6 +10219,12 @@ function guardarEpis() {
         if (definicion.multiple) {
             const controlMultiple = epis.controles[claveEpi];
             for (const unidad of Object.values(controlMultiple.unidades || {})) {
+                unidad.estadoElemento = normalizarEstadoElemento(unidad.estadoElemento);
+                if (unidad.estadoElemento !== "ACTIVO") {
+                    if (unidad.estadoElemento === "NO_DISPONIBLE") crearIncidenciaNoDisponibleEpi(claveEpi, unidad);
+                    else eliminarIncidenciaNoDisponibleEpi(claveEpi, unidad);
+                    continue;
+                }
                 if (!String(unidad.campos.descripcionElemento || "").trim()) {
                     alert("Debe indicar la descripción del elemento en " + definicion.nombre + ".");
                     return;
@@ -10203,6 +10263,12 @@ function guardarEpis() {
         }
 
         const controlEpi = epis.controles[claveEpi];
+        controlEpi.estadoElemento = normalizarEstadoElemento(controlEpi.estadoElemento);
+        if (controlEpi.estadoElemento !== "ACTIVO") {
+            if (controlEpi.estadoElemento === "NO_DISPONIBLE") crearIncidenciaNoDisponibleEpi(claveEpi, controlEpi);
+            else eliminarIncidenciaNoDisponibleEpi(claveEpi, controlEpi);
+            continue;
+        }
         const subcontroles = definicion.controles;
         for (const claveSub of Object.keys(subcontroles)) {
             const sub = controlEpi.subcontroles[claveSub];
