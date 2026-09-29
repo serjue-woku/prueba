@@ -1,0 +1,432 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: #f3f5f7;
+    color: #1f2933;
+}
+
+.app-header {
+    background: #17365d;
+    color: white;
+    padding: 18px 24px;
+}
+
+.app-header h1 {
+    margin: 0;
+    font-size: 22px;
+}
+
+#auditIdHeader {
+    font-size: 13px;
+    opacity: .85;
+}
+
+.container {
+    max-width: 1200px;
+    margin: auto;
+    padding: 25px;
+}
+
+.screen {
+    display: none;
+}
+
+.screen.active {
+    display: block;
+}
+
+.section-header {
+    margin-bottom: 20px;
+}
+
+.card {
+    background: white;
+    border-radius: 12px;
+    padding: 22px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.07);
+}
+
+.card h3 {
+    margin-top: 0;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.field-wide {
+    grid-column: 1 / -1;
+}
+
+.field label,
+.gps-data label {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+input,
+select,
+textarea {
+    width: 100%;
+    padding: 11px;
+    border: 1px solid #ccd3da;
+    border-radius: 7px;
+    font-size: 15px;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: #2878c8;
+}
+
+.radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.radio-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 16px;
+    border: 1px solid #d5dbe1;
+    border-radius: 8px;
+    cursor: pointer;
+    background: #fafbfc;
+}
+
+.radio-option:hover {
+    background: #f0f5fa;
+}
+
+.radio-option input {
+    width: auto;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.location-options {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+}
+
+.location-button {
+    padding: 12px 16px;
+    border: 1px solid #cbd5df;
+    border-radius: 8px;
+    background: white;
+    cursor: pointer;
+}
+
+.location-button:hover {
+    background: #f0f5fa;
+}
+
+.gps-status {
+    margin-bottom: 15px;
+    font-size: 14px;
+}
+
+.gps-data {
+    display: flex;
+    gap: 40px;
+    margin-top: 20px;
+    padding-top: 15px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.gps-data div {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 20px;
+}
+
+.primary-button {
+    background: #17365d;
+    color: white;
+    border: 0;
+    padding: 13px 25px;
+    border-radius: 8px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.primary-button:hover {
+    background: #245183;
+}
+
+.dashboard-header {
+    margin-bottom: 25px;
+}
+
+.module-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+}
+
+.module-card {
+    min-height: 150px;
+    background: white;
+    border: 1px solid #dfe4e8;
+    border-radius: 12px;
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    transition: .15s;
+}
+
+.module-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,.10);
+}
+
+.module-icon {
+    font-size: 35px;
+}
+
+.module-card strong {
+    font-size: 17px;
+}
+
+.status {
+    font-size: 12px;
+    font-weight: bold;
+    padding: 5px 10px;
+    border-radius: 20px;
+}
+
+.status-gray {
+    background: #e9ecef;
+    color: #495057;
+}
+
+.status-blue {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.status-green {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.status-orange {
+    background: #ffedd5;
+    color: #9a3412;
+}
+
+.incident-count {
+    background: #fee2e2;
+    color: #991b1b;
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-weight: bold;
+}
+
+.back-button {
+    border: 0;
+    background: transparent;
+    color: #245183;
+    cursor: pointer;
+    padding: 0;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+@media (max-width: 800px) {
+
+    .container {
+        padding: 15px;
+    }
+
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .module-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+}
+
+@media (max-width: 520px) {
+
+    .module-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .radio-group {
+        flex-direction: column;
+    }
+
+    .gps-data {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+}
+
+/* =========================================================
+   PASO 2 - VEHÍCULO
+   ========================================================= */
+
+.vehicle-not-applicable {
+    text-align: center;
+}
+
+.vehicle-document-control {
+    padding: 14px 0;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.vehicle-date-field {
+    max-width: 300px;
+    margin-top: 15px;
+}
+
+.vehicle-doc-observations {
+    margin-top: 18px;
+}
+
+.vehicle-help {
+    color: #64748b;
+    margin-bottom: 18px;
+}
+
+.vehicle-control {
+    border: 1px solid #dfe4e8;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 14px;
+    background: #fff;
+}
+
+.vehicle-control-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+}
+
+.vehicle-control-text {
+    flex: 1;
+    line-height: 1.45;
+}
+
+.vehicle-result-group {
+    flex-shrink: 0;
+}
+
+.vehicle-incident-detail {
+    margin-top: 15px;
+    padding: 16px;
+    border-left: 4px solid #dc2626;
+    background: #fef2f2;
+    border-radius: 8px;
+}
+
+.vehicle-incident-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.vehicle-incident-title {
+    font-weight: bold;
+    color: #b91c1c;
+}
+
+.vehicle-incident-inner small {
+    color: #64748b;
+}
+
+.vehicle-actions {
+    margin-bottom: 25px;
+}
+
+@media (max-width: 800px) {
+
+    .vehicle-control-main {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .vehicle-result-group {
+        width: 100%;
+    }
+}
+/* =========================================================
+   MÓDULO EXTINTOR
+   ========================================================= */
+
+.extintor-seccion {
+    margin-bottom: 25px;
+}
+
+.extintor-seccion h3 {
+    margin-bottom: 12px;
+}
+
+.extintor-control {
+    border-left: 4px solid #2563eb;
+}
+
+.module-not-applicable {
+    margin: 25px 0;
+    padding: 35px 20px;
+    background: #f8fafc;
+    border-radius: 12px;
+}
+
+.module-not-applicable h3 {
+    margin-top: 10px;
+}
+
+.not-applicable-icon {
+    width: 50px;
+    height: 50px;
+    margin: 0 auto 15px auto;
+    border-radius: 50%;
+    background: #dcfce7;
+    color: #166534;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    font-weight: bold;
+}
+
+.extintor-control .vehicle-incident-detail {
+    border-left-color: #dc2626;
+}

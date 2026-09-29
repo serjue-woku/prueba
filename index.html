@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Auditoría de Vehículos y Equipos</title>
+
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<header class="app-header">
+    <div>
+        <h1>Auditoría de Vehículos y Equipos</h1>
+        <span id="auditIdHeader"></span>
+    </div>
+</header>
+
+<main class="container">
+
+    <!-- ========================= -->
+    <!-- DATOS GENERALES -->
+    <!-- ========================= -->
+
+    <section id="datosGenerales" class="screen active">
+
+        <div class="section-header">
+            <h2>Datos generales</h2>
+            <p>Introduzca los datos de la auditoría.</p>
+        </div>
+
+        <div class="card">
+
+            <div class="form-grid">
+
+                <div class="field">
+                    <label>ID Auditoría</label>
+                    <input
+                        type="text"
+                        id="idAuditoria"
+                        readonly
+                    >
+                </div>
+
+                <div class="field">
+                    <label>Fecha auditoría *</label>
+                    <input
+                        type="date"
+                        id="fechaAuditoria"
+                    >
+                </div>
+
+                <div class="field">
+                    <label>Hora inicio</label>
+                    <input
+                        type="time"
+                        id="horaInicio"
+                    >
+                </div>
+
+                <div class="field">
+                    <label>Auditor *</label>
+                    <input
+                        type="text"
+                        id="auditor"
+                        placeholder="Nombre y apellidos"
+                    >
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- TIPO PERSONAL -->
+
+        <div class="card">
+
+            <h3>Tipo de personal</h3>
+
+            <div class="radio-group">
+
+                <label class="radio-option">
+                    <input
+                        type="radio"
+                        name="tipoPersonal"
+                        value="EECC"
+                        onchange="actualizarAplicabilidad()"
+                    >
+                    <span>
+                        <strong>Empresa colaboradora (EECC)</strong>
+                    </span>
+                </label>
+
+                <label class="radio-option">
+                    <input
+                        type="radio"
+                        name="tipoPersonal"
+                        value="PERSONAL_PROPIO"
+                        onchange="actualizarAplicabilidad()"
+                    >
+                    <span>
+                        <strong>Personal propio / empresas del grupo</strong>
+                    </span>
+                </label>
+
+            </div>
+
+        </div>
+
+
+        <!-- ACTIVIDAD -->
+
+        <div class="card">
+
+            <h3>Actividad</h3>
+
+            <div class="radio-group">
+
+                <label class="radio-option">
+                    <input
+                        type="radio"
+                        name="actividad"
+                        value="TELECOMUNICACIONES"
+                        onchange="actualizarAplicabilidad()"
+                    >
+                    Telecomunicaciones
+                </label>
+
+                <label class="radio-option">
+                    <input
+                        type="radio"
+                        name="actividad"
+                        value="RADIO"
+                        onchange="actualizarAplicabilidad()"
+                    >
+                    Radio
+                </label>
+
+                <label class="radio-option">
+                    <input
+                        type="radio"
+                        name="actividad"
+                        value="ALARMA"
+                        onchange="actualizarAplicabilidad()"
+                    >
+                    Alarma
+                </label>
+
+                <label class="radio-option">
+                    <input
+                        type="radio"
+                        name="actividad"
+                        value="OTRA"
+                        onchange="actualizarAplicabilidad()"
+                    >
+                    Otra
+                </label>
+
+            </div>
+
+            <div
+                id="actividadOtraContainer"
+                class="field hidden"
+            >
+                <label>Especificar actividad</label>
+
+                <input
+                    type="text"
+                    id="actividadOtra"
+                    placeholder="Indique la actividad"
+                >
+            </div>
+
+        </div>
+
+
+        <!-- EMPRESA / PROYECTO / TRABAJADOR -->
+
+        <div class="card">
+
+            <h3>Identificación</h3>
+
+            <div class="form-grid">
+
+                <div class="field">
+                    <label>Empresa *</label>
+                    <input
+                        type="text"
+                        id="empresa"
+                    >
+                </div>
+
+                <div class="field">
+                    <label>Proyecto</label>
+                    <input
+                        type="text"
+                        id="proyecto"
+                    >
+                </div>
+
+                <div class="field">
+                    <label>Trabajador *</label>
+                    <input
+                        type="text"
+                        id="trabajador"
+                    >
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <!-- LOCALIZACIÓN -->
+
+        <div class="card">
+
+            <h3>Localización de la auditoría</h3>
+
+            <div class="location-options">
+
+                <button
+                    type="button"
+                    class="location-button"
+                    onclick="activarUbicacionManual()"
+                >
+                    ✏️ Introducir dirección manualmente
+                </button>
+
+                <button
+                    type="button"
+                    class="location-button"
+                    onclick="obtenerGPS()"
+                >
+                    📍 Obtener ubicación mediante GPS
+                </button>
+
+            </div>
+
+
+            <div id="gpsStatus" class="gps-status"></div>
+
+
+            <div class="form-grid">
+
+                <div class="field field-wide">
+                    <label>Dirección</label>
+                    <input
+                        type="text"
+                        id="direccion"
+                    >
+                </div>
+
+                <div class="field">
+                    <label>Población</label>
+                    <input
+                        type="text"
+                        id="poblacion"
+                    >
+                </div>
+
+                <div class="field">
+                    <label>Provincia</label>
+                    <input
+                        type="text"
+                        id="provincia"
+                    >
+                </div>
+
+                <div class="field">
+                    <label>Código postal</label>
+                    <input
+                        type="text"
+                        id="codigoPostal"
+                    >
+                </div>
+
+            </div>
+
+
+            <div class="gps-data">
+
+                <div>
+                    <label>Latitud</label>
+                    <span id="latitud">—</span>
+                </div>
+
+                <div>
+                    <label>Longitud</label>
+                    <span id="longitud">—</span>
+                </div>
+
+            </div>
+
+        </div>
+
+
+        <div class="actions">
+
+            <button
+                type="button"
+                class="primary-button"
+                onclick="iniciarAuditoria()"
+            >
+                Continuar →
+            </button>
+
+        </div>
+
+    </section>
+
+
+    <!-- ========================= -->
+    <!-- DASHBOARD -->
+    <!-- ========================= -->
+
+    <section id="dashboard" class="screen">
+
+        <div class="dashboard-header">
+
+            <div>
+                <h2>Dashboard de auditoría</h2>
+                <p id="dashboardIdentification"></p>
+            </div>
+
+        </div>
+
+
+        <div class="module-grid">
+
+            <button
+                class="module-card"
+                onclick="abrirModulo('vehiculo')"
+            >
+                <span class="module-icon">🚐</span>
+                <strong>Vehículo</strong>
+                <span
+                    id="statusVehiculo"
+                    class="status status-gray"
+                >
+                    NO INICIADO
+                </span>
+            </button>
+
+
+            <button
+                class="module-card"
+                onclick="abrirModulo('extintor')"
+            >
+                <span class="module-icon">🧯</span>
+                <strong>Extintor</strong>
+                <span
+                    id="statusExtintor"
+                    class="status status-gray"
+                >
+                    NO INICIADO
+                </span>
+            </button>
+
+
+            <button
+                class="module-card"
+                onclick="abrirModulo('escaleras')"
+            >
+                <span class="module-icon">🪜</span>
+                <strong>Escaleras</strong>
+                <span
+                    id="statusEscaleras"
+                    class="status status-gray"
+                >
+                    NO INICIADO
+                </span>
+            </button>
+
+
+            <button
+                class="module-card"
+                onclick="abrirModulo('epis')"
+            >
+                <span class="module-icon">🦺</span>
+                <strong>EPIs</strong>
+                <span
+                    id="statusEpis"
+                    class="status status-gray"
+                >
+                    NO INICIADO
+                </span>
+            </button>
+
+
+            <button
+                class="module-card"
+                onclick="abrirModulo('botiquin')"
+            >
+                <span class="module-icon">🩹</span>
+                <strong>Botiquín</strong>
+                <span
+                    id="statusBotiquin"
+                    class="status status-gray"
+                >
+                    NO INICIADO
+                </span>
+            </button>
+
+
+            <button
+                id="cardRadio"
+                class="module-card"
+                onclick="abrirModulo('radio')"
+            >
+                <span class="module-icon">📡</span>
+                <strong>Radio</strong>
+                <span
+                    id="statusRadio"
+                    class="status status-gray"
+                >
+                    NO INICIADO
+                </span>
+            </button>
+
+
+            <button
+                class="module-card incident-card"
+                onclick="abrirModulo('incidencias')"
+            >
+                <span class="module-icon">⚠️</span>
+                <strong>Incidencias</strong>
+                <span
+                    id="incidentCount"
+                    class="incident-count"
+                >
+                    0
+                </span>
+            </button>
+
+
+            <button
+                class="module-card summary-card"
+                onclick="abrirModulo('resumen')"
+            >
+                <span class="module-icon">📋</span>
+                <strong>Resumen / Finalizar</strong>
+            </button>
+
+        </div>
+
+    </section>
+
+
+    <!-- ========================= -->
+    <!-- CONTENEDOR FUTUROS MÓDULOS -->
+    <!-- ========================= -->
+
+    <section
+        id="modulo"
+        class="screen"
+    >
+
+        <div class="card">
+
+            <button
+                class="back-button"
+                onclick="volverDashboard()"
+            >
+                ← Volver al dashboard
+            </button>
+
+            <h2 id="tituloModulo"></h2>
+
+            <div id="contenidoModulo"></div>
+
+        </div>
+
+    </section>
+
+</main>
+
+
+<script src="app.js"></script>
+
+</body>
+</html>
