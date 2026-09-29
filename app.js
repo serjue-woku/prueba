@@ -6014,53 +6014,152 @@ function cambiarResultadoBotiquin(nombre, resultado) {
     actualizarDashboard();
 }
 function seleccionarFotografiaEnMemoria(callback) {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.style.display = "none";
+    /*
+       Selector común de fotografías.
+       - "Hacer foto": intenta abrir directamente la cámara trasera en móviles
+         mediante capture="environment".
+       - "Elegir archivo/foto": permite seleccionar una imagen existente desde
+         galería, fotos, archivos, etc.
+       Se mantiene un único flujo de lectura/validación para todas las partes
+       de la aplicación que utilizan fotografías.
+    */
+    const overlay = document.createElement("div");
+    overlay.id = "selector-fotografia-overlay";
+    overlay.style.cssText = [
+        "position:fixed",
+        "inset:0",
+        "z-index:99999",
+        "background:rgba(0,0,0,.55)",
+        "display:flex",
+        "align-items:center",
+        "justify-content:center",
+        "padding:20px",
+        "box-sizing:border-box"
+    ].join(";");
 
-    input.addEventListener("change", function () {
-        const archivo = input.files && input.files[0];
-        if (!archivo) {
-            input.remove();
-            return;
+    const panel = document.createElement("div");
+    panel.style.cssText = [
+        "background:#fff",
+        "border-radius:14px",
+        "padding:22px",
+        "width:min(420px,100%)",
+        "box-shadow:0 10px 35px rgba(0,0,0,.30)",
+        "text-align:center",
+        "box-sizing:border-box"
+    ].join(";");
+
+    const titulo = document.createElement("h3");
+    titulo.textContent = "Añadir fotografía";
+    titulo.style.margin = "0 0 10px";
+
+    const ayuda = document.createElement("p");
+    ayuda.textContent = "Puede hacer una fotografía nueva o seleccionar una imagen existente.";
+    ayuda.style.cssText = "margin:0 0 18px;color:#555;line-height:1.4;";
+
+    const zona = document.createElement("div");
+    zona.style.cssText = "display:flex;flex-direction:column;gap:10px;";
+
+    const btnCamara = document.createElement("button");
+    btnCamara.type = "button";
+    btnCamara.textContent = "📷 Hacer fotografía";
+    btnCamara.style.cssText = "width:100%;padding:13px 16px;border:0;border-radius:9px;cursor:pointer;font-size:16px;font-weight:600;";
+
+    const btnArchivo = document.createElement("button");
+    btnArchivo.type = "button";
+    btnArchivo.textContent = "🖼️ Elegir fotografía / archivo";
+    btnArchivo.style.cssText = "width:100%;padding:13px 16px;border:1px solid #bbb;border-radius:9px;background:#fff;cursor:pointer;font-size:16px;font-weight:600;";
+
+    const btnCancelar = document.createElement("button");
+    btnCancelar.type = "button";
+    btnCancelar.textContent = "Cancelar";
+    btnCancelar.style.cssText = "width:100%;padding:10px 16px;border:0;background:transparent;cursor:pointer;font-size:14px;color:#666;";
+
+    zona.appendChild(btnCamara);
+    zona.appendChild(btnArchivo);
+    zona.appendChild(btnCancelar);
+    panel.appendChild(titulo);
+    panel.appendChild(ayuda);
+    panel.appendChild(zona);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    let cerrado = false;
+    function cerrarSelector() {
+        if (cerrado) return;
+        cerrado = true;
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+
+    function abrirInput(opcionCamara) {
+        cerrarSelector();
+
+        const input = document.createElement("input");
+        input.type = "file";
+        input.accept = "image/*";
+        if (opcionCamara) {
+            // En Android/iOS los navegadores compatibles ofrecen la cámara
+            // trasera directamente. En otros dispositivos se mantiene el
+            // comportamiento disponible del navegador.
+            input.setAttribute("capture", "environment");
         }
+        input.style.display = "none";
 
-        const maxBytes = 8 * 1024 * 1024;
-        if (archivo.size > maxBytes) {
-            alert("La fotografía supera el límite de 8 MB. Seleccione una imagen de menor tamaño.");
-            input.remove();
-            return;
-        }
+        input.addEventListener("change", function () {
+            const archivo = input.files && input.files[0];
+            if (!archivo) {
+                input.remove();
+                return;
+            }
 
-        if (!archivo.type || !archivo.type.startsWith("image/")) {
-            alert("El archivo seleccionado no es una imagen válida.");
-            input.remove();
-            return;
-        }
+            const maxBytes = 8 * 1024 * 1024;
+            if (archivo.size > maxBytes) {
+                alert("La fotografía supera el límite de 8 MB. Seleccione una imagen de menor tamaño.");
+                input.remove();
+                return;
+            }
 
-        const lector = new FileReader();
-        lector.onload = function () {
-            callback({
-                id: "FOTO-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 7).toUpperCase(),
-                nombreArchivo: archivo.name,
-                tipo: archivo.type,
-                tamano: archivo.size,
-                dataUrl: lector.result,
-                fecha: new Date().toISOString(),
-                pendienteSubida: true
-            });
-            input.remove();
-        };
-        lector.onerror = function () {
-            alert("No se ha podido leer la fotografía seleccionada.");
-            input.remove();
-        };
-        lector.readAsDataURL(archivo);
+            if (!archivo.type || !archivo.type.startsWith("image/")) {
+                alert("El archivo seleccionado no es una imagen válida.");
+                input.remove();
+                return;
+            }
+
+            const lector = new FileReader();
+            lector.onload = function () {
+                callback({
+                    id: "FOTO-" + Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 7).toUpperCase(),
+                    nombreArchivo: archivo.name,
+                    tipo: archivo.type,
+                    tamano: archivo.size,
+                    dataUrl: lector.result,
+                    fecha: new Date().toISOString(),
+                    pendienteSubida: true
+                });
+                input.remove();
+            };
+            lector.onerror = function () {
+                alert("No se ha podido leer la fotografía seleccionada.");
+                input.remove();
+            };
+            lector.readAsDataURL(archivo);
+        });
+
+        document.body.appendChild(input);
+        input.click();
+    }
+
+    btnCamara.addEventListener("click", function () {
+        abrirInput(true);
     });
 
-    document.body.appendChild(input);
-    input.click();
+    btnArchivo.addEventListener("click", function () {
+        abrirInput(false);
+    });
+
+    btnCancelar.addEventListener("click", cerrarSelector);
+    overlay.addEventListener("click", function (event) {
+        if (event.target === overlay) cerrarSelector();
+    });
 }
 
 function obtenerFotografiasIncidencia(incidencia) {
