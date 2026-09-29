@@ -7586,7 +7586,21 @@ function renderizarModuloRadio() {
     }
 
     inicializarRadio();
-    if (auditoria.modulos.radio.estado === "NO_APLICA") auditoria.modulos.radio.estado = "NO_INICIADO";
+    if (auditoria.modulos.radio.estado === "NO_APLICA") {
+        contenido.innerHTML = `
+            <div class="card vehicle-not-applicable">
+                <h3>RADIO — NO APLICA</h3>
+                <p>Se ha indicado que esta auditoría no requiere la revisión de los EPIs específicos de RADIO.</p>
+                <div class="vehicle-actions">
+                    <button type="button" class="btn-secondary" onclick="volverDashboard()">← Volver al Dashboard</button>
+                    <button type="button" class="secondary-button" onclick="reactivarModuloRadio()">Reactivar módulo RADIO</button>
+                </div>
+            </div>
+            <div class="module-nav-bottom">
+                <button type="button" class="btn-secondary" onclick="volverDashboard()">← Volver al Dashboard</button>
+            </div>`;
+        return;
+    }
 
     const estructura = obtenerEstructuraRadio();
     let html = `
@@ -7604,9 +7618,34 @@ function renderizarModuloRadio() {
         }
     });
 
-    html += `<div class="card"><button type="button" class="primary-button" onclick="guardarRadio()">Guardar EPIs específicos de RADIO y completar módulo</button></div>`;
+    html += `<div class="card">
+        <div class="vehicle-actions">
+            <button type="button" class="secondary-button" onclick="marcarModuloRadioNoAplica()">Marcar RADIO como NO APLICA</button>
+            <button type="button" class="primary-button" onclick="guardarRadio()">Guardar EPIs específicos de RADIO y completar módulo</button>
+            <button type="button" class="btn-secondary" onclick="volverDashboard()">← Volver al Dashboard</button>
+        </div>
+    </div>`;
     contenido.innerHTML = html;
     marcarResultadosPositivosFabricanteEnDOM(contenido);
+}
+
+function marcarModuloRadioNoAplica() {
+    if (auditoria.datosGenerales.actividad !== "RADIO") {
+        auditoria.modulos.radio.estado = "NO_APLICA";
+        actualizarDashboard();
+        volverDashboard();
+        return;
+    }
+    if (!confirm("¿Marcar el módulo RADIO como NO APLICA? No se realizará la revisión de sus EPIs específicos.")) return;
+    auditoria.modulos.radio.estado = "NO_APLICA";
+    actualizarDashboard();
+    volverDashboard();
+}
+
+function reactivarModuloRadio() {
+    auditoria.modulos.radio.estado = "NO_INICIADO";
+    actualizarDashboard();
+    renderizarModuloRadio();
 }
 
 function guardarRadio() {
@@ -9164,13 +9203,31 @@ function renderizarModuloEpis() {
         return;
     }
 
-    if (epis.estado === "NO_APLICA") epis.estado = "NO_INICIADO";
+    if (epis.estado === "NO_APLICA") {
+        contenido.innerHTML = `
+            <div class="card vehicle-not-applicable">
+                <h3>EPIs — NO APLICA</h3>
+                <p>Se ha indicado que no procede realizar la auditoría de los EPIs generales en esta revisión.</p>
+                <div class="vehicle-actions">
+                    <button type="button" class="btn-secondary" onclick="volverDashboard()">← Volver al Dashboard</button>
+                    <button type="button" class="secondary-button" onclick="reactivarModuloEpis()">Reactivar módulo EPIs</button>
+                </div>
+            </div>
+            <div class="module-nav-bottom">
+                <button type="button" class="btn-secondary" onclick="volverDashboard()">← Volver al Dashboard</button>
+            </div>`;
+        return;
+    }
 
     let html = `
         <div class="module-intro">
             <h3>Equipos de Protección Individual</h3>
             <p>Compruebe individualmente cada aspecto de los EPIs generales correspondientes a la actividad auditada.</p>
             <p>Cada comprobación dispone de <strong>CORRECTO</strong>, <strong>INCORRECTO</strong> y <strong>NO PROCEDE</strong>. Los aspectos marcados como INCORRECTO requieren descripción de la deficiencia y medida correctiva.</p>
+            <div class="vehicle-actions">
+                <button type="button" class="btn-secondary" onclick="marcarModuloEpisNoAplica()">Marcar EPIs como NO APLICA</button>
+                <button type="button" class="btn-secondary" onclick="volverDashboard()">← Volver al Dashboard</button>
+            </div>
         </div>`;
 
     obtenerControlesEpis().forEach(claveEpi => {
@@ -9218,7 +9275,13 @@ function renderizarModuloEpis() {
         html += `</div>`;
     });
 
-    html += `<div class="card"><button type="button" class="primary-button" onclick="guardarEpis()">Guardar EPIs y completar módulo</button></div>`;
+    html += `<div class="card">
+        <div class="vehicle-actions">
+            <button type="button" class="secondary-button" onclick="marcarModuloEpisNoAplica()">Marcar EPIs como NO APLICA</button>
+            <button type="button" class="primary-button" onclick="guardarEpis()">Guardar EPIs y completar módulo</button>
+            <button type="button" class="btn-secondary" onclick="volverDashboard()">← Volver al Dashboard</button>
+        </div>
+    </div>`;
     contenido.innerHTML = html;
     marcarResultadosPositivosFabricanteEnDOM(contenido);
 }
@@ -9625,6 +9688,25 @@ function registrarFotoSubcontrolEpi(claveEpi, claveSub) {
     });
 }
 
+
+function marcarModuloEpisNoAplica() {
+    if (!episEsAplicable()) {
+        auditoria.modulos.epis.estado = "NO_APLICA";
+        actualizarDashboard();
+        volverDashboard();
+        return;
+    }
+    if (!confirm("¿Marcar el módulo EPIs como NO APLICA? No se realizará la revisión de los EPIs generales.")) return;
+    auditoria.modulos.epis.estado = "NO_APLICA";
+    actualizarDashboard();
+    volverDashboard();
+}
+
+function reactivarModuloEpis() {
+    auditoria.modulos.epis.estado = "NO_INICIADO";
+    actualizarDashboard();
+    renderizarModuloEpis();
+}
 
 function guardarEpis() {
 
