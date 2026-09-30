@@ -11148,12 +11148,20 @@ let auditoriaCampo = {
     estado: "BORRADOR",
     datos: {
         fecha: obtenerFechaActual(),
+        horaInicio: obtenerHoraActual(),
+        auditor: "",
+        auditorCargo: "",
+        tipoPersonal: "",
+        actividad: "",
+        actividadOtra: "",
+        empresa: "",
+        proyecto: "",
+        trabajador: "",
+        dniNie: "",
         obra: "",
         direccion: "",
         cliente: "",
         trabajosRiesgoEspecial: "",
-        auditor: "",
-        auditorCargo: "",
         localizacion: {
             tipo: "",
             poblacion: "",
@@ -11290,22 +11298,31 @@ function instalarDashboardCampo() {
 }
 
 function sincronizarDatosVehiculosEnCampo() {
-    // Transfiere datos de la auditoría de Vehículos y Equipos a Campo sin borrar
-    // lo que el usuario ya haya introducido manualmente en Campo.
+    // Copia inicial/no destructiva de Datos Generales de Vehículos y Equipos a Campo.
+    // Si el usuario ya ha editado un dato en Campo, se conserva.
     const dg = auditoria?.datosGenerales || {};
     const loc = dg.localizacion || {};
     const dc = auditoriaCampo.datos;
 
-    if (!dc.fecha && dg.fecha) dc.fecha = dg.fecha;
-    if (!dc.auditor && dg.auditor) dc.auditor = dg.auditor;
-    if (!dc.auditorCargo) dc.auditorCargo = "Auditor / SPM";
+    const copiarSiVacio = (obj, clave, valor) => {
+        if ((obj[clave] === "" || obj[clave] == null) && valor !== "" && valor != null) obj[clave] = valor;
+    };
 
-    // La empresa/proyecto de Vehículos sirve como referencia inicial de cliente/obra.
-    if (!dc.cliente && dg.empresa) dc.cliente = dg.empresa;
-    if (!dc.obra && dg.proyecto) dc.obra = dg.proyecto;
+    copiarSiVacio(dc, "fecha", dg.fecha);
+    copiarSiVacio(dc, "horaInicio", dg.horaInicio);
+    copiarSiVacio(dc, "auditor", dg.auditor);
+    copiarSiVacio(dc, "auditorCargo", "Auditor / SPM");
+    copiarSiVacio(dc, "tipoPersonal", dg.tipoPersonal);
+    copiarSiVacio(dc, "actividad", dg.actividad);
+    copiarSiVacio(dc, "actividadOtra", dg.actividadOtra);
+    copiarSiVacio(dc, "empresa", dg.empresa);
+    copiarSiVacio(dc, "proyecto", dg.proyecto);
+    copiarSiVacio(dc, "trabajador", dg.trabajador);
+    copiarSiVacio(dc, "dniNie", dg.dniNie);
+    copiarSiVacio(dc, "cliente", dg.empresa);
+    copiarSiVacio(dc, "obra", dg.proyecto);
+    copiarSiVacio(dc, "direccion", loc.direccion);
 
-    // La ubicación GPS/manual pasa a Dirección y conserva coordenadas y datos de población.
-    if (!dc.direccion && loc.direccion) dc.direccion = loc.direccion;
     dc.localizacion = dc.localizacion || {};
     ["tipo", "poblacion", "provincia", "codigoPostal", "latitud", "longitud"].forEach(k => {
         if ((dc.localizacion[k] === "" || dc.localizacion[k] == null) && loc[k] != null && loc[k] !== "") {
@@ -11313,8 +11330,7 @@ function sincronizarDatosVehiculosEnCampo() {
         }
     });
 
-    // El trabajador de Vehículos se incorpora como primer trabajador de Campo.
-    // No se duplica si ya existe el mismo DNI.
+    // El trabajador principal de Vehículos se incorpora a Campo sin duplicarlo.
     const nombre = String(dg.trabajador || "").trim();
     const dni = String(dg.dniNie || "").trim();
     const empresa = String(dg.empresa || "").trim();
@@ -11323,14 +11339,9 @@ function sincronizarDatosVehiculosEnCampo() {
             (dni && String(t.dni || "").trim().toUpperCase() === dni.toUpperCase()) ||
             (!dni && nombre && String(t.nombre || "").trim().toUpperCase() === nombre.toUpperCase())
         );
-        if (!existe) {
-            auditoriaCampo.trabajadores.unshift({
-                id: "TC-VDF-" + Date.now(),
-                nombre,
-                dni,
-                empresa
-            });
-        }
+        if (!existe) auditoriaCampo.trabajadores.unshift({
+            id: "TC-VDF-" + Date.now(), nombre, dni, empresa
+        });
     }
 }
 
@@ -11389,30 +11400,97 @@ function abrirModuloCampo(modulo) {
 function campoEsc(v) { return escapeHtml(v == null ? "" : String(v)); }
 
 function guardarDatosCampoDesdeFormulario() {
-    const ids = ["campoFecha", "campoObra", "campoDireccion", "campoCliente", "campoRiesgoEspecial"];
-    auditoriaCampo.datos.fecha = document.getElementById(ids[0])?.value || auditoriaCampo.datos.fecha;
-    auditoriaCampo.datos.obra = document.getElementById(ids[1])?.value || "";
-    auditoriaCampo.datos.direccion = document.getElementById(ids[2])?.value || "";
-    auditoriaCampo.datos.cliente = document.getElementById(ids[3])?.value || "";
-    auditoriaCampo.datos.auditor = document.getElementById("campoAuditorCampo")?.value || auditoriaCampo.datos.auditor || "";
-    auditoriaCampo.datos.trabajosRiesgoEspecial = document.getElementById(ids[4])?.value || "";
+    const val = id => document.getElementById(id)?.value || "";
+    auditoriaCampo.datos.fecha = val("campoFecha") || auditoriaCampo.datos.fecha;
+    auditoriaCampo.datos.horaInicio = val("campoHoraInicio") || auditoriaCampo.datos.horaInicio;
+    auditoriaCampo.datos.auditor = val("campoAuditorCampo") || "";
+    auditoriaCampo.datos.auditorCargo = val("campoAuditorCargo") || "";
+    auditoriaCampo.datos.tipoPersonal = val("campoTipoPersonal") || "";
+    auditoriaCampo.datos.actividad = val("campoActividad") || "";
+    auditoriaCampo.datos.actividadOtra = val("campoActividadOtra") || "";
+    auditoriaCampo.datos.empresa = val("campoEmpresa") || "";
+    auditoriaCampo.datos.proyecto = val("campoProyecto") || "";
+    auditoriaCampo.datos.trabajador = val("campoTrabajador") || "";
+    auditoriaCampo.datos.dniNie = normalizarDniNie(val("campoDniNie"));
+    auditoriaCampo.datos.obra = val("campoObra") || "";
+    auditoriaCampo.datos.direccion = val("campoDireccion") || "";
+    auditoriaCampo.datos.cliente = val("campoCliente") || "";
+    auditoriaCampo.datos.trabajosRiesgoEspecial = val("campoRiesgoEspecial") || "";
+    auditoriaCampo.datos.localizacion = auditoriaCampo.datos.localizacion || {};
+    auditoriaCampo.datos.localizacion.poblacion = val("campoPoblacion") || auditoriaCampo.datos.localizacion.poblacion || "";
+    auditoriaCampo.datos.localizacion.provincia = val("campoProvincia") || auditoriaCampo.datos.localizacion.provincia || "";
+    auditoriaCampo.datos.localizacion.codigoPostal = val("campoCodigoPostal") || auditoriaCampo.datos.localizacion.codigoPostal || "";
     auditoriaCampo.estado = auditoriaCampo.estado === "FINALIZADA" ? "FINALIZADA" : "EN_CURSO";
     actualizarDashboardCampo();
 }
 
 function renderModuloCampoDatos() {
-    const d = auditoriaCampo.datos;
-    return `<div class="card"><div class="form-grid">
-      <div class="field"><label>Fecha *</label><input id="campoFecha" type="date" value="${campoEsc(d.fecha)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
-      <div class="field"><label>Obra</label><input id="campoObra" value="${campoEsc(d.obra)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
-      <div class="field"><label>Dirección</label><input id="campoDireccion" value="${campoEsc(d.direccion)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
-      <div class="field"><label>Cliente</label><input id="campoCliente" value="${campoEsc(d.cliente)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
-      <div class="field"><label>Auditor</label><input id="campoAuditorCampo" value="${campoEsc(d.auditor || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
-      <div class="field"><label>Localización / población</label><input id="campoLocalizacionCampo" value="${campoEsc([d.localizacion?.poblacion,d.localizacion?.provincia].filter(Boolean).join(" · "))}" readonly></div>
-      <div class="field" style="grid-column:1/-1"><label>Dirección / ubicación</label><input id="campoDireccion" value="${campoEsc(d.direccion)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
-      <div class="field" style="grid-column:1/-1"><label>Trabajos con riesgo especial (indicar)</label><input id="campoRiesgoEspecial" value="${campoEsc(d.trabajosRiesgoEspecial)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
-    </div></div>`;
+    const d = auditoriaCampo.datos, l = d.localizacion || {};
+    const actividad = d.actividad === "OTRA" ? (d.actividadOtra || "OTRA") : (d.actividad || "");
+    return `<div class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <h3 style="margin:0">Datos generales de la auditoría</h3>
+        <strong style="font-size:1.05rem">Nº AUDITORÍA: ${campoEsc(auditoriaCampo.id)}</strong>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>Nº auditoría</label><input value="${campoEsc(auditoriaCampo.id)}" readonly></div>
+        <div class="field"><label>Fecha *</label><input id="campoFecha" type="date" value="${campoEsc(d.fecha)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Hora de inicio</label><input id="campoHoraInicio" type="time" value="${campoEsc(d.horaInicio || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Auditor *</label><input id="campoAuditorCampo" value="${campoEsc(d.auditor || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Cargo del auditor</label><input id="campoAuditorCargo" value="${campoEsc(d.auditorCargo || "Auditor / SPM")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Tipo de personal</label><input id="campoTipoPersonal" value="${campoEsc(d.tipoPersonal || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Actividad</label><input id="campoActividad" value="${campoEsc(actividad)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Otra actividad</label><input id="campoActividadOtra" value="${campoEsc(d.actividadOtra || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Empresa</label><input id="campoEmpresa" value="${campoEsc(d.empresa || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Proyecto</label><input id="campoProyecto" value="${campoEsc(d.proyecto || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Trabajador principal</label><input id="campoTrabajador" value="${campoEsc(d.trabajador || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>DNI / NIE</label><input id="campoDniNie" value="${campoEsc(d.dniNie || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Obra</label><input id="campoObra" value="${campoEsc(d.obra || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Cliente</label><input id="campoCliente" value="${campoEsc(d.cliente || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field" style="grid-column:1/-1"><label>Dirección</label><input id="campoDireccion" value="${campoEsc(d.direccion || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Población</label><input id="campoPoblacion" value="${campoEsc(l.poblacion || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Provincia</label><input id="campoProvincia" value="${campoEsc(l.provincia || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Código postal</label><input id="campoCodigoPostal" value="${campoEsc(l.codigoPostal || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field" style="grid-column:1/-1"><label>Trabajos con riesgo especial (indicar)</label><input id="campoRiesgoEspecial" value="${campoEsc(d.trabajosRiesgoEspecial || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+      </div>
+      <div class="card" style="margin-top:14px;background:#f7f7f7">
+        <h3 style="margin-top:0">Geolocalización</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <button type="button" class="primary-button" onclick="obtenerGPSCampo()">📍 Obtener GPS y dirección</button>
+          <button type="button" class="btn-secondary" onclick="activarUbicacionManualCampo()">Introducir ubicación manualmente</button>
+        </div>
+        <div id="campoGpsStatus">${l.latitud != null && l.longitud != null ? "✓ GPS guardado" : ""}</div>
+        <div style="font-size:.85rem;margin-top:6px"><strong>Coordenadas:</strong> ${l.latitud != null ? campoEsc(l.latitud) : ""} ${l.longitud != null ? " · " + campoEsc(l.longitud) : ""}</div>
+      </div>
+      <button type="button" class="primary-button" onclick="guardarDatosCampoDesdeFormulario()">Guardar datos de auditoría</button>
+    </div>`;
 }
+
+function obtenerGPSCampo() {
+    const status = document.getElementById("campoGpsStatus");
+    if (!navigator.geolocation) { if(status) status.textContent="El navegador no permite geolocalización."; return; }
+    if(status) status.textContent="Obteniendo ubicación...";
+    navigator.geolocation.getCurrentPosition(async pos => {
+        const lat=pos.coords.latitude, lon=pos.coords.longitude;
+        const l=auditoriaCampo.datos.localizacion || (auditoriaCampo.datos.localizacion={});
+        l.tipo="GPS"; l.latitud=lat; l.longitud=lon;
+        try {
+            const r=await fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat="+encodeURIComponent(lat)+"&lon="+encodeURIComponent(lon)+"&zoom=18&addressdetails=1&accept-language=es",{headers:{Accept:"application/json"}});
+            if(!r.ok) throw new Error("HTTP "+r.status);
+            const j=await r.json(), a=j.address||{};
+            const direccion=a.road ? a.road+(a.house_number?", "+a.house_number:"") : (a.pedestrian||j.display_name||"");
+            const poblacion=a.city||a.town||a.village||a.municipality||a.hamlet||"";
+            const provincia=a.province||a.county||a.state||"";
+            if(direccion) auditoriaCampo.datos.direccion=direccion;
+            if(poblacion) l.poblacion=poblacion;
+            if(provincia) l.provincia=provincia;
+            if(a.postcode) l.codigoPostal=a.postcode;
+            if(status) status.textContent="✓ GPS obtenido y dirección cumplimentada automáticamente.";
+        } catch(e) { if(status) status.textContent="✓ GPS obtenido. No se pudo obtener la dirección automáticamente."; }
+        abrirModuloCampo("datos");
+    },()=>{ if(status) status.textContent="No se pudo obtener la ubicación. Puede introducirla manualmente."; },{enableHighAccuracy:true,timeout:10000,maximumAge:0});
+}
+function activarUbicacionManualCampo(){ auditoriaCampo.datos.localizacion.tipo="MANUAL"; const s=document.getElementById("campoGpsStatus"); if(s)s.textContent="Modo de ubicación manual."; }
 
 function agregarTrabajadorCampo() {
     auditoriaCampo.trabajadores.push({ id: "TC-" + Date.now() + "-" + Math.floor(Math.random()*999), nombre: "", dni: "", empresa: "" });
@@ -11567,16 +11645,27 @@ function crearPdfAuditoriaCampoLocal(){
             y+=2;
         };
         encabezado();
-        // Datos superiores, respetando la estructura del documento original.
+                // Datos generales completos de la auditoría, alineados con el módulo Datos Generales de Vehículos y Equipos.
+        const dg=auditoriaCampo.datos||{}, gl=dg.localizacion||{};
         const topY=y, leftW=98, rightW=104, h1=7, h2=7, h3=7;
-        cell(M,y,leftW,h1,"Obra:",{bold:true,fs:6.4,fill:[255,255,255]}); cell(M+leftW,y,rightW,h1,"Fecha:  "+(auditoriaCampo.datos.fecha||""),{bold:true,fs:6.4}); y+=h1;
-        cell(M,y,leftW,h2,"Dirección:  "+auditoriaCampo.datos.direccion,{bold:true,fs:6.4}); cell(M+leftW,y,rightW,h2,"Cliente:  "+auditoriaCampo.datos.cliente,{bold:true,fs:6.4}); y+=h2;
-        cell(M,y,CW,h3,"Trabajos con riesgo especial (indicar):  "+auditoriaCampo.datos.trabajosRiesgoEspecial,{bold:true,fs:6.4}); y+=h3+3;
+        cell(M,y,leftW,h1,"Nº auditoría:  "+(auditoriaCampo.id||""),{bold:true,fs:6.4}); cell(M+leftW,y,rightW,h1,"Fecha:  "+(dg.fecha||"")+"  "+(dg.horaInicio||""),{bold:true,fs:6.4}); y+=h1;
+        cell(M,y,leftW,h2,"Auditor:  "+(dg.auditor||""),{bold:true,fs:6.4}); cell(M+leftW,y,rightW,h2,"Cargo:  "+(dg.auditorCargo||""),{bold:true,fs:6.4}); y+=h2;
+        cell(M,y,leftW,h2,"Empresa:  "+(dg.empresa||""),{bold:true,fs:6.4}); cell(M+leftW,y,rightW,h2,"Proyecto:  "+(dg.proyecto||""),{bold:true,fs:6.4}); y+=h2;
+        cell(M,y,leftW,h2,"Trabajador:  "+(dg.trabajador||""),{bold:true,fs:6.4}); cell(M+leftW,y,rightW,h2,"DNI/NIE:  "+(dg.dniNie||""),{bold:true,fs:6.4}); y+=h2;
+        cell(M,y,leftW,h2,"Tipo de personal:  "+(dg.tipoPersonal||""),{bold:true,fs:6.4}); cell(M+leftW,y,rightW,h2,"Actividad:  "+((dg.actividad==="OTRA"?dg.actividadOtra:dg.actividad)||""),{bold:true,fs:6.4}); y+=h2;
+        cell(M,y,leftW,h2,"Obra:  "+(dg.obra||""),{bold:true,fs:6.4}); cell(M+leftW,y,rightW,h2,"Cliente:  "+(dg.cliente||""),{bold:true,fs:6.4}); y+=h2;
+        cell(M,y,CW,h2,"Dirección:  "+(dg.direccion||""),{bold:true,fs:6.4}); y+=h2;
+        cell(M,y,leftW,h2,"Población / Provincia:  "+[gl.poblacion,gl.provincia].filter(Boolean).join(" / "),{bold:true,fs:6.4}); cell(M+leftW,y,rightW,h2,"Código postal:  "+(gl.codigoPostal||""),{bold:true,fs:6.4}); y+=h2;
+        const coords=(gl.latitud!=null&&gl.longitud!=null)?(gl.latitud+", "+gl.longitud):"";
+        cell(M,y,CW,h2,"Geolocalización:  "+(gl.tipo||"MANUAL")+(coords?" · "+coords:""),{bold:true,fs:6.4}); y+=h2;
+        cell(M,y,CW,h3,"Trabajos con riesgo especial (indicar):  "+(dg.trabajosRiesgoEspecial||""),{bold:true,fs:6.4}); y+=h3+3;
         // Trabajadores
         const wh=6.3, cols=[38,28,136], labels=["NOMBRE Y APELLIDOS","DNI","EMPRESA"];
         cell(M,y,CW,wh,"LISTADO DE TRABAJADORES",{bold:true,fs:7,fill:blue});doc.setTextColor(255,255,255);doc.text("LISTADO DE TRABAJADORES",M+CW/2,y+4.3,{align:"center"});doc.setTextColor(0,0,0);y+=wh;
         cols.forEach((w,i)=>cell(M+cols.slice(0,i).reduce((a,b)=>a+b,0),y,w,wh,labels[i],{bold:true,fs:6,fill:light}));y+=wh;
-        const trabajadores=auditoriaCampo.trabajadores.length?auditoriaCampo.trabajadores:[{nombre:"",dni:"",empresa:""}];
+        const trabajadores=auditoriaCampo.trabajadores.length?[...auditoriaCampo.trabajadores]:[{nombre:"",dni:"",empresa:""}];
+        // El trabajador principal de Datos Generales se mantiene aunque todavía no se haya añadido manualmente al listado.
+        if(dg.trabajador && !trabajadores.some(t=>String(t.dni||"").toUpperCase()===String(dg.dniNie||"").toUpperCase() && String(t.dni||"")!=="")) trabajadores.unshift({nombre:dg.trabajador,dni:dg.dniNie||"",empresa:dg.empresa||""});
         trabajadores.forEach(t=>{const vals=[t.nombre||"",t.dni||"",t.empresa||""];cols.forEach((w,i)=>cell(M+cols.slice(0,i).reduce((a,b)=>a+b,0),y,w,wh,vals[i],{fs:6}));y+=wh;});
         y+=3;
         ["GENERAL","VEHICULO","ZONA_TRABAJO","TRABAJOS_ALTURA"].forEach(section);
