@@ -11048,3 +11048,475 @@ function escapeHtml(
             "&#039;"
         );
 }
+
+/* =========================================================
+   FASE 5N — SEGUNDO DASHBOARD INDEPENDIENTE
+   AUDITORÍA DE CAMPO
+   Basado en el documento "Chequeo de Condiciones de seguridad ZENER"
+   ========================================================= */
+
+const ESTRUCTURA_AUDITORIA_CAMPO = {
+    GENERAL: {
+        titulo: "GENERAL",
+        items: [
+            ["1.1", "Se aprecia alguna situación de riesgo grave o inminente."],
+            ["1.2", "Los trabajadores tienen a su disposición en el lugar de trabajo la documentación necesaria."],
+            ["1.3", "Los trabajadores conocen el procedimiento de emergencias."],
+            ["1.4", "Hay recurso preventivo presente durante la ejecución de todos los trabajos de riesgo especial."],
+            ["1.5", "Se ha completado el parte de trabajo pertinente (EC, parte de poste, Planex, etc.)."],
+            ["1.6", "Las herramientas y maquinaria se encuentran en buen estado."],
+            ["1.7", "Los EPI de todos los trabajadores están revisados y en buen estado."],
+            ["1.8", "Los trabajadores llevan la identificación exigida por el Operador."],
+            ["1.9", "Todos los trabajadores utilizan mascarilla FFP2 y disponen de gel hidroalcohólico."]
+        ]
+    },
+    VEHICULO: {
+        titulo: "VEHÍCULO",
+        items: [
+            ["2.1", "Sujeción de la escalera en la baca con cinchas"],
+            ["2.2", "Extintor de 3kg cargado, revisado, sujeto y de fácil acceso"],
+            ["2.3", "Botiquín completo y sin ningún componente caducado"],
+            ["2.4", "Dispone de chaleco A/V, triángulos o luz V16 e ITV en vigor"]
+        ]
+    },
+    ZONA_TRABAJO: {
+        titulo: "ZONA DE TRABAJO",
+        items: [
+            ["3.1", "Está correctamente delimitada, señalizada e iluminada la zona de trabajo."],
+            ["3.2", "Se encuentra vallada la zona de actuación. (Cámaras, arqueta, obra civil, acera...etc.)"],
+            ["3.3", "Se mantiene correctamente el orden y la limpieza. (Incluidos acopios, zonas de paso, etc.)"],
+            ["3.4", "Se respeta la distancia de seguridad necesaria con líneas eléctricas de alta tensión."],
+            ["3.5", "Los trabajadores utilizan ropa A/V en caso de ser necesario."]
+        ]
+    },
+    TRABAJOS_ALTURA: {
+        titulo: "TRABAJOS EN ALTURA",
+        items: [
+            ["4.1", "La escalera está bien colocada, nivelada y se hace un uso correcto de la misma."],
+            ["4.2", "Utilizan los EPI necesarios según el caso (arnés, casco con barbuquejo, etc.)"],
+            ["4.3", "La escalera cumple la UNE EN 131, tiene revisión en vigor y presenta buen estado."],
+            ["4.4", "La escalera presenta los elementos que pudieran requerirse (patas, línea de vida, etc.)"],
+            ["4.5", "La escalera no se apoya directamente sobre postes de tipo H."],
+            ["4.6", "Si se utiliza PEMP, los trabajadores utilizan arnés y no sobrepasan la capacidad indicada."],
+            ["4.7", "Si se utilizan trepadores, los trabajadores disponen de línea de vida vertical."],
+            ["4.8", "Los andamios están revisados y disponen de todos los elementos necesarios en su montaje."],
+            ["4.9", "Los trabajadores no realizan esfuerzos o movimientos peligrosos sobre los medios auxiliares."],
+            ["4.10", "Los trabajadores utilizan correctamente los dispositivos de anclaje y posicionamiento"]
+        ]
+    },
+    ESPACIOS_CONFINADOS: {
+        titulo: "ESPACIOS CONFINADOS",
+        items: [
+            ["5.1", "Se dispone de equipos de respiración autónomos revisados y en funcionamiento."],
+            ["5.2", "La escalera se apoya, al menos, 1m de la zona de desembarco."],
+            ["5.3", "El trípode de rescate está revisado y se utiliza correctamente."],
+            ["5.4", "Se utiliza el detector de gases calibrado y en correcto estado, antes y durante los trabajos."],
+            ["5.5", "Se dispone de los medios de ventilación y achique que pudieran ser necesarios"],
+            ["5.6", "Los trabajadores disponen de sistemas de comunicación permanentes."],
+            ["5.7", "Se dispone protección colectiva en las aberturas."]
+        ]
+    },
+    RIESGO_ELECTRICO: {
+        titulo: "TRABAJOS CON RIESGO ELÉCTRICO",
+        items: [
+            ["6.1", "El emplazamiento dispone de red de tierras en buen estado."],
+            ["6.2", "El cuadro eléctrico está en perfecto estado sin cables a la vista ni partes activas accesibles."],
+            ["6.3", "Las zonas con tensión están correctamente delimitadas y señalizadas."],
+            ["6.4", "Los trabajadores mantienen las distancias de seguridad necesarias."],
+            ["6.5", "Las herramientas manuales son aislantes y están en buen estado."],
+            ["6.6", "Todos los elementos eléctricos en intemperie tienen protección IP<45"]
+        ]
+    },
+    OBRA_CIVIL: {
+        titulo: "OBRA CIVIL",
+        items: [
+            ["7.1", "Se respeta el radio de acción de la maquinaria por parte del personal y de terceros."],
+            ["7.2", "Los trabajadores utilizan los EPI adecuados a cada tarea."],
+            ["7.3", "El paso de la maquinaria se mantiene alejado, al menos, 1m del borde de excavaciones."],
+            ["7.4", "Los conductores utilizan el cinturón de seguridad."],
+            ["7.5", "La maquinaria dispone de rotativos luminosos y dispositivos acústicos de maniobra."],
+            ["7.6", "Todas las partes calientes y móviles de las máquinas están debidamente protegidas."],
+            ["7.7", "No se pasan cargas por encima de los trabajadores ni de terceros."],
+            ["7.8", "Los elementos de elevación de cargas se encuentran en perfecto estado."],
+            ["7.9", "Se tienen localizados e identificados todos los posibles servicios afectados."]
+        ]
+    }
+};
+
+let auditoriaCampo = {
+    id: generarIdAuditoriaCampo(),
+    estado: "BORRADOR",
+    datos: {
+        fecha: obtenerFechaActual(),
+        obra: "",
+        direccion: "",
+        cliente: "",
+        trabajosRiesgoEspecial: ""
+    },
+    trabajadores: [],
+    comprobaciones: {},
+    observaciones: "",
+    fotografias: [],
+    firmas: { auditor: "", trabajador: "" },
+    fechaFinalizacion: "",
+    horaFinalizacion: ""
+};
+
+function generarIdAuditoriaCampo() {
+    const d = new Date();
+    const p = n => String(n).padStart(2, "0");
+    const base = `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`;
+    return `AC-${base}-${Math.floor(Math.random()*9000)+1000}`;
+}
+
+function inicializarAuditoriaCampo() {
+    Object.keys(ESTRUCTURA_AUDITORIA_CAMPO).forEach(seccion => {
+        (ESTRUCTURA_AUDITORIA_CAMPO[seccion].items || []).forEach(([id]) => {
+            if (!auditoriaCampo.comprobaciones[id]) auditoriaCampo.comprobaciones[id] = { resultado: "" };
+        });
+    });
+    if (!Array.isArray(auditoriaCampo.trabajadores)) auditoriaCampo.trabajadores = [];
+    if (!Array.isArray(auditoriaCampo.fotografias)) auditoriaCampo.fotografias = [];
+    if (!auditoriaCampo.firmas) auditoriaCampo.firmas = { auditor: "", trabajador: "" };
+}
+
+function instalarDashboardAuditoriasIndependientes() {
+    if (document.getElementById("auditoriasInicio")) return;
+    const main = document.querySelector("main.container") || document.querySelector("main") || document.body;
+    const sec = document.createElement("section");
+    sec.id = "auditoriasInicio";
+    sec.className = "screen";
+    sec.innerHTML = `
+        <div class="dashboard-header">
+            <div>
+                <h2>Auditorías SPM Grupo Zener</h2>
+                <p>Seleccione el tipo de auditoría que desea realizar.</p>
+            </div>
+        </div>
+        <div class="module-grid">
+            <button type="button" class="module-card" onclick="abrirAuditoriaVehiculosDesdeInicio()">
+                <span class="module-icon">🚐</span>
+                <strong>Auditoría de Vehículos y Equipos</strong>
+                <span class="status status-gray">EPIs · RADIO · Escaleras · Vehículo · Botiquín</span>
+            </button>
+            <button type="button" class="module-card" onclick="abrirAuditoriaCampoDesdeInicio()">
+                <span class="module-icon">🦺</span>
+                <strong>Auditoría de campo</strong>
+                <span class="status status-gray">Chequeo de condiciones de seguridad</span>
+            </button>
+        </div>
+    `;
+    main.insertBefore(sec, main.firstChild);
+    const tituloHeader = document.querySelector(".app-header h1");
+    if (tituloHeader) tituloHeader.textContent = "Auditorías SPM Grupo Zener";
+    inicializarAuditoriaCampo();
+    instalarDashboardCampo();
+}
+
+function abrirAuditoriaVehiculosDesdeInicio() {
+    mostrarPantalla("datosGenerales");
+    inicializarCampoDniNie();
+}
+
+function volverSelectorAuditorias() {
+    mostrarPantalla("auditoriasInicio");
+}
+
+function instalarDashboardCampo() {
+    if (document.getElementById("dashboardCampo")) return;
+    const main = document.querySelector("main.container") || document.querySelector("main") || document.body;
+    const sec = document.createElement("section");
+    sec.id = "dashboardCampo";
+    sec.className = "screen";
+    sec.innerHTML = `
+      <div class="dashboard-header">
+        <div>
+          <h2>Dashboard — Auditoría de campo</h2>
+          <p id="dashboardCampoIdentificacion"></p>
+        </div>
+      </div>
+      <div id="dashboardCampoAcciones" class="module-grid">
+        <button type="button" class="module-card" onclick="abrirModuloCampo('datos')"><span class="module-icon">🏗️</span><strong>Datos de auditoría</strong><span id="statusCampoDatos" class="status status-gray">PENDIENTE</span></button>
+        <button type="button" class="module-card" onclick="abrirModuloCampo('trabajadores')"><span class="module-icon">👷</span><strong>Trabajadores</strong><span id="statusCampoTrabajadores" class="status status-gray">0</span></button>
+        <button type="button" class="module-card" onclick="abrirModuloCampo('chequeo')"><span class="module-icon">☑️</span><strong>Chequeo de seguridad</strong><span id="statusCampoChequeo" class="status status-gray">PENDIENTE</span></button>
+        <button type="button" class="module-card" onclick="abrirModuloCampo('fotografias')"><span class="module-icon">📷</span><strong>Fotografías</strong><span id="statusCampoFotos" class="status status-gray">0</span></button>
+        <button type="button" class="module-card" onclick="abrirModuloCampo('observaciones')"><span class="module-icon">📝</span><strong>Observaciones y firmas</strong><span id="statusCampoFirmas" class="status status-gray">PENDIENTE</span></button>
+        <button type="button" class="module-card summary-card" onclick="abrirModuloCampo('resumen')"><span class="module-icon">📋</span><strong>Resumen / Finalizar / PDF</strong><span id="statusCampoFinal" class="status status-gray">BORRADOR</span></button>
+      </div>
+      <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
+        <button type="button" class="btn-secondary secondary-button" onclick="volverSelectorAuditorias()">← Cambiar tipo de auditoría</button>
+        <button type="button" class="btn-secondary secondary-button" onclick="abrirModuloCampo('trabajadores')">+ Añadir trabajador</button>
+      </div>
+    `;
+    main.insertBefore(sec, document.getElementById("modulo") || null);
+
+    const mod = document.createElement("section");
+    mod.id = "moduloCampo";
+    mod.className = "screen";
+    mod.innerHTML = `<div class="card"><button type="button" class="back-button" onclick="volverDashboardCampo()">← Volver al dashboard de campo</button><h2 id="tituloModuloCampo"></h2><div id="contenidoModuloCampo"></div></div>`;
+    main.insertBefore(mod, document.getElementById("modulo") || null);
+    if (!document.getElementById("estilosAuditoriaCampo")) {
+        const st = document.createElement("style");
+        st.id = "estilosAuditoriaCampo";
+        st.textContent = `
+          .campo-grid-section{margin:18px 0;border:1px solid #bbb;border-radius:4px;overflow:hidden;background:#fff;}
+          .campo-grid-head,.campo-grid-row{display:grid;grid-template-columns:minmax(0,1fr) 46px 46px 46px;align-items:stretch;}
+          .campo-grid-head{background:#002666;color:#fff;font-weight:700;text-align:center;}
+          .campo-grid-head span{padding:8px 4px;border-right:1px solid #fff;}
+          .campo-grid-row>div,.campo-grid-row>label{border-top:1px solid #999;border-right:1px solid #999;padding:7px 6px;font-size:.88rem;}
+          .campo-grid-row>label{display:flex;align-items:center;justify-content:center;}
+          .campo-grid-row input{width:18px;height:18px;}
+          .campo-fotos-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+          .campo-foto-card{border:1px solid #bbb;border-radius:6px;padding:10px;background:#fff;}
+          .campo-foto-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+          .campo-foto-card img{display:block;width:100%;height:190px;object-fit:contain;background:#f3f3f3;border:1px solid #ddd;margin-bottom:8px;}
+          .campo-foto-card textarea{width:100%;min-height:70px;margin-top:8px;box-sizing:border-box;}
+          @media(max-width:700px){.campo-grid-head,.campo-grid-row{grid-template-columns:minmax(0,1fr) 38px 38px 38px}.campo-grid-row>div,.campo-grid-row>label{font-size:.76rem;padding:6px 4px}.campo-fotos-grid{grid-template-columns:1fr}.campo-foto-card img{height:220px}}
+        `;
+        document.head.appendChild(st);
+    }
+}
+
+function abrirAuditoriaCampoDesdeInicio() {
+    inicializarAuditoriaCampo();
+    mostrarPantalla("dashboardCampo");
+    actualizarDashboardCampo();
+}
+
+function volverDashboardCampo() {
+    mostrarPantalla("dashboardCampo");
+    actualizarDashboardCampo();
+}
+
+function abrirModuloCampo(modulo) {
+    inicializarAuditoriaCampo();
+    const titulo = {
+        datos: "Datos de auditoría de campo",
+        trabajadores: "Listado de trabajadores",
+        chequeo: "Chequeo de condiciones de seguridad",
+        fotografias: "Fotografías de la auditoría",
+        observaciones: "Observaciones y firmas",
+        resumen: "Resumen / Finalizar / PDF"
+    }[modulo] || "Auditoría de campo";
+    document.getElementById("tituloModuloCampo").textContent = titulo;
+    const contenido = document.getElementById("contenidoModuloCampo");
+    if (modulo === "datos") contenido.innerHTML = renderModuloCampoDatos();
+    if (modulo === "trabajadores") contenido.innerHTML = renderModuloCampoTrabajadores();
+    if (modulo === "chequeo") contenido.innerHTML = renderModuloCampoChequeo();
+    if (modulo === "fotografias") contenido.innerHTML = renderModuloCampoFotografias();
+    if (modulo === "observaciones") contenido.innerHTML = renderModuloCampoObservaciones();
+    if (modulo === "resumen") contenido.innerHTML = renderModuloCampoResumen();
+    mostrarPantalla("moduloCampo");
+    if (modulo === "observaciones") configurarFirmasCampo();
+}
+
+function campoEsc(v) { return escapeHtml(v == null ? "" : String(v)); }
+
+function guardarDatosCampoDesdeFormulario() {
+    const ids = ["campoFecha", "campoObra", "campoDireccion", "campoCliente", "campoRiesgoEspecial"];
+    auditoriaCampo.datos.fecha = document.getElementById(ids[0])?.value || auditoriaCampo.datos.fecha;
+    auditoriaCampo.datos.obra = document.getElementById(ids[1])?.value || "";
+    auditoriaCampo.datos.direccion = document.getElementById(ids[2])?.value || "";
+    auditoriaCampo.datos.cliente = document.getElementById(ids[3])?.value || "";
+    auditoriaCampo.datos.trabajosRiesgoEspecial = document.getElementById(ids[4])?.value || "";
+    auditoriaCampo.estado = auditoriaCampo.estado === "FINALIZADA" ? "FINALIZADA" : "EN_CURSO";
+    actualizarDashboardCampo();
+}
+
+function renderModuloCampoDatos() {
+    const d = auditoriaCampo.datos;
+    return `<div class="card"><div class="form-grid">
+      <div class="field"><label>Fecha *</label><input id="campoFecha" type="date" value="${campoEsc(d.fecha)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+      <div class="field"><label>Obra</label><input id="campoObra" value="${campoEsc(d.obra)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+      <div class="field"><label>Dirección</label><input id="campoDireccion" value="${campoEsc(d.direccion)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+      <div class="field"><label>Cliente</label><input id="campoCliente" value="${campoEsc(d.cliente)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+      <div class="field" style="grid-column:1/-1"><label>Trabajos con riesgo especial (indicar)</label><input id="campoRiesgoEspecial" value="${campoEsc(d.trabajosRiesgoEspecial)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+    </div></div>`;
+}
+
+function agregarTrabajadorCampo() {
+    auditoriaCampo.trabajadores.push({ id: "TC-" + Date.now() + "-" + Math.floor(Math.random()*999), nombre: "", dni: "", empresa: "" });
+    abrirModuloCampo("trabajadores");
+}
+function eliminarTrabajadorCampo(id) {
+    auditoriaCampo.trabajadores = auditoriaCampo.trabajadores.filter(t => t.id !== id);
+    abrirModuloCampo("trabajadores");
+}
+function actualizarTrabajadorCampo(id, clave, valor) {
+    const t = auditoriaCampo.trabajadores.find(x => x.id === id);
+    if (t) t[clave] = valor;
+    actualizarDashboardCampo();
+}
+function renderModuloCampoTrabajadores() {
+    const filas = auditoriaCampo.trabajadores.map((t,i)=>`<div class="card" style="margin-bottom:10px"><div style="display:grid;grid-template-columns:40px 1.4fr 1fr 1.2fr auto;gap:8px;align-items:end"><strong>#${i+1}</strong><div class="field"><label>Nombre y apellidos</label><input value="${campoEsc(t.nombre)}" oninput="actualizarTrabajadorCampo('${t.id}','nombre',this.value)"></div><div class="field"><label>DNI</label><input value="${campoEsc(t.dni)}" oninput="actualizarTrabajadorCampo('${t.id}','dni',this.value)"></div><div class="field"><label>Empresa</label><input value="${campoEsc(t.empresa)}" oninput="actualizarTrabajadorCampo('${t.id}','empresa',this.value)"></div><button type="button" class="btn-secondary" onclick="eliminarTrabajadorCampo('${t.id}')">Eliminar</button></div></div>`).join("");
+    return `<div class="card"><p>Puede añadir trabajadores en cualquier momento, incluso después de haber comenzado el chequeo.</p><button type="button" class="primary-button" onclick="agregarTrabajadorCampo()">+ Añadir trabajador</button></div>${filas || '<div class="card">No hay trabajadores añadidos todavía.</div>'}`;
+}
+
+function setResultadoCampo(id, resultado) {
+    inicializarAuditoriaCampo();
+    auditoriaCampo.comprobaciones[id].resultado = resultado;
+    auditoriaCampo.estado = "EN_CURSO";
+    actualizarDashboardCampo();
+    document.querySelectorAll(`[data-campo-check="${CSS.escape(id)}"]`).forEach(el => el.classList.toggle("selected", el.value === resultado));
+}
+function renderModuloCampoChequeo() {
+    let html = `<div class="card"><p><strong>Grid de comprobación:</strong> seleccione SI, NO o NA en cada punto. Se conserva la numeración y la estructura del documento original.</p>`;
+    Object.entries(ESTRUCTURA_AUDITORIA_CAMPO).forEach(([clave,seccion])=>{
+        html += `<div class="campo-grid-section"><div class="campo-grid-head"><span>${campoEsc(seccion.titulo)}</span><span>SI</span><span>NO</span><span>NA</span></div>`;
+        seccion.items.forEach(([id,texto])=>{
+            const r=auditoriaCampo.comprobaciones[id]?.resultado || "";
+            html += `<div class="campo-grid-row"><div><strong>${id}</strong> ${campoEsc(texto)}</div><label><input data-campo-check="${id}" type="radio" name="campo_${id}" value="SI" ${r==="SI"?"checked":""} onchange="setResultadoCampo('${id}','SI')"></label><label><input data-campo-check="${id}" type="radio" name="campo_${id}" value="NO" ${r==="NO"?"checked":""} onchange="setResultadoCampo('${id}','NO')"></label><label><input data-campo-check="${id}" type="radio" name="campo_${id}" value="NA" ${r==="NA"?"checked":""} onchange="setResultadoCampo('${id}','NA')"></label></div>`;
+        });
+        html += `</div>`;
+    });
+    html += `</div>`;
+    return html;
+}
+
+function renderModuloCampoFotografias() {
+    const fotos = auditoriaCampo.fotografias || [];
+    const slots = fotos.map((f,i)=>`<div class="campo-foto-card"><div class="campo-foto-head"><strong>Fotografía ${i+1}</strong><button type="button" class="btn-secondary" onclick="eliminarFotoCampo(${i})">Eliminar</button></div>${f.dataUrl?`<img src="${f.dataUrl}" alt="Fotografía ${i+1}">`:""}<input type="file" accept="image/*" capture="environment" onchange="cargarFotoCampo(event,${i})"><textarea placeholder="Descripción / ubicación / observación (opcional)" oninput="auditoriaCampo.fotografias[${i}].descripcion=this.value">${campoEsc(f.descripcion||"")}</textarea></div>`).join("");
+    return `<div class="card"><p>Se pueden incorporar varias fotografías de campo. En móvil el control puede abrir directamente la cámara.</p><button type="button" class="primary-button" onclick="agregarFotoCampo()">+ Añadir fotografía</button></div><div class="campo-fotos-grid">${slots || '<div class="card">No hay fotografías todavía.</div>'}</div>`;
+}
+function agregarFotoCampo(){ auditoriaCampo.fotografias.push({dataUrl:"",descripcion:""}); abrirModuloCampo("fotografias"); }
+function eliminarFotoCampo(i){ auditoriaCampo.fotografias.splice(i,1); abrirModuloCampo("fotografias"); }
+function cargarFotoCampo(ev,i){ const file=ev.target.files && ev.target.files[0]; if(!file)return; if(file.size>8*1024*1024){alert("La fotografía supera 8 MB.");return;} const reader=new FileReader(); reader.onload=()=>{auditoriaCampo.fotografias[i].dataUrl=reader.result; abrirModuloCampo("fotografias");}; reader.readAsDataURL(file); }
+
+function configurarFirmasCampo() {
+    ["auditor","trabajador"].forEach(clave=>{
+        const canvas=document.getElementById("firmaCampo_"+clave); if(!canvas)return;
+        const rect=canvas.getBoundingClientRect(), ratio=Math.max(window.devicePixelRatio||1,1);
+        canvas.width=Math.max(1,Math.round(rect.width*ratio)); canvas.height=Math.max(1,Math.round(rect.height*ratio));
+        const ctx=canvas.getContext("2d"); ctx.scale(ratio,ratio); ctx.lineWidth=2; ctx.lineCap="round"; ctx.strokeStyle="#111"; ctx.fillStyle="#fff"; ctx.fillRect(0,0,rect.width,rect.height);
+        const data=auditoriaCampo.firmas[clave]; if(data){const im=new Image();im.onload=()=>ctx.drawImage(im,0,0,rect.width,rect.height);im.src=data;}
+        let draw=false;
+        const pos=e=>{const r=canvas.getBoundingClientRect(),p=e.touches?e.touches[0]:e;return{x:p.clientX-r.left,y:p.clientY-r.top};};
+        const start=e=>{e.preventDefault();draw=true;const p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);};
+        const move=e=>{if(!draw)return;e.preventDefault();const p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();};
+        const end=e=>{if(!draw)return;e.preventDefault();draw=false;auditoriaCampo.firmas[clave]=canvas.toDataURL("image/png");actualizarDashboardCampo();};
+        canvas.onmousedown=start;canvas.onmousemove=move;canvas.onmouseup=end;canvas.onmouseleave=end;canvas.ontouchstart=start;canvas.ontouchmove=move;canvas.ontouchend=end;
+    });
+}
+function limpiarFirmaCampo(clave){ auditoriaCampo.firmas[clave]=""; abrirModuloCampo("observaciones"); }
+function guardarObservacionesCampo(){ auditoriaCampo.observaciones=document.getElementById("campoObservaciones")?.value||""; actualizarDashboardCampo(); }
+function renderModuloCampoObservaciones(){
+    return `<div class="card"><div class="field"><label>OBSERVACIONES</label><textarea id="campoObservaciones" style="min-height:220px" oninput="guardarObservacionesCampo()">${campoEsc(auditoriaCampo.observaciones||"")}</textarea></div></div>
+    <div class="card"><h3>Firma del auditor</h3><canvas id="firmaCampo_auditor" class="firma-canvas" style="width:100%;height:140px;border:1px solid #333;background:#fff;touch-action:none"></canvas><button type="button" class="btn-secondary" onclick="limpiarFirmaCampo('auditor')">Limpiar firma</button></div>
+    <div class="card"><h3>Firma por los trabajadores</h3><canvas id="firmaCampo_trabajador" class="firma-canvas" style="width:100%;height:140px;border:1px solid #333;background:#fff;touch-action:none"></canvas><button type="button" class="btn-secondary" onclick="limpiarFirmaCampo('trabajador')">Limpiar firma</button></div>`;
+}
+
+function estadoChequeoCampo(){
+    inicializarAuditoriaCampo();
+    const ids=Object.keys(auditoriaCampo.comprobaciones);
+    const completadas=ids.filter(id=>["SI","NO","NA"].includes(auditoriaCampo.comprobaciones[id].resultado));
+    return {total:ids.length,completadas:completadas.length,completo:ids.length===completadas.length};
+}
+function actualizarDashboardCampo(){
+    inicializarAuditoriaCampo();
+    const d=auditoriaCampo.datos, chk=estadoChequeoCampo();
+    const ident=document.getElementById("dashboardCampoIdentificacion"); if(ident) ident.textContent=[d.obra,d.cliente,d.fecha].filter(Boolean).join(" · ") || auditoriaCampo.id;
+    const sd=document.getElementById("statusCampoDatos"); if(sd) sd.textContent=d.fecha?"COMPLETOS":"PENDIENTE";
+    const st=document.getElementById("statusCampoTrabajadores"); if(st) st.textContent=String(auditoriaCampo.trabajadores.length)+" trabajador"+(auditoriaCampo.trabajadores.length===1?"":"es");
+    const sc=document.getElementById("statusCampoChequeo"); if(sc) sc.textContent=`${chk.completadas}/${chk.total}`;
+    const sf=document.getElementById("statusCampoFotos"); if(sf) sf.textContent=String(auditoriaCampo.fotografias.filter(f=>f.dataUrl).length);
+    const ss=document.getElementById("statusCampoFirmas"); if(ss) ss.textContent=auditoriaCampo.firmas.auditor&&auditoriaCampo.firmas.trabajador?"COMPLETAS":"PENDIENTE";
+    const sfin=document.getElementById("statusCampoFinal"); if(sfin) sfin.textContent=auditoriaCampo.estado;
+}
+
+function renderModuloCampoResumen(){
+    const chk=estadoChequeoCampo(), f1=!!auditoriaCampo.firmas.auditor, f2=!!auditoriaCampo.firmas.trabajador;
+    const no=[...Object.entries(auditoriaCampo.comprobaciones).filter(([,v])=>v.resultado==="NO").map(([id])=>id)];
+    return `<div class="card"><h3>${campoEsc(auditoriaCampo.id)}</h3><p><strong>Obra:</strong> ${campoEsc(auditoriaCampo.datos.obra)} · <strong>Cliente:</strong> ${campoEsc(auditoriaCampo.datos.cliente)} · <strong>Fecha:</strong> ${campoEsc(auditoriaCampo.datos.fecha)}</p><p><strong>Trabajadores:</strong> ${auditoriaCampo.trabajadores.length} · <strong>Chequeos:</strong> ${chk.completadas}/${chk.total} · <strong>Respuestas NO:</strong> ${no.length}</p></div>
+    <div class="card"><strong>Estado:</strong> ${campoEsc(auditoriaCampo.estado)}<br><small>Para finalizar deben estar respondidos todos los puntos SI/NO/NA y existir las dos firmas.</small></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" class="primary-button" onclick="finalizarAuditoriaCampo()">FINALIZAR AUDITORÍA DE CAMPO</button><button type="button" class="secondary-button" onclick="generarPdfAuditoriaCampoLocal()">GENERAR PDF DE PRUEBA</button>${auditoriaCampo.estado==="FINALIZADA"?`<button type="button" class="secondary-button" onclick="verPdfAuditoriaCampoLocal()">VER PDF</button>`:""}</div>`;
+}
+
+function finalizarAuditoriaCampo(){
+    const chk=estadoChequeoCampo();
+    if(!auditoriaCampo.datos.fecha){alert("Debe indicar la fecha.");return;}
+    if(!chk.completo){alert(`Faltan comprobaciones por responder: ${chk.total-chk.completadas}.`);return;}
+    if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
+    auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen"); alert("Auditoría de campo finalizada correctamente. ID: "+auditoriaCampo.id);
+}
+
+function textoResultadoCampo(r){ return r==="SI"?"SI":r==="NO"?"NO":r==="NA"?"NA":""; }
+
+async function generarPdfAuditoriaCampoLocal(){
+    try{
+        const {blob}=await obtenerBlobPdfAuditoriaCampoLocal();
+        if(window._ultimoPdfCampoUrl)URL.revokeObjectURL(window._ultimoPdfCampoUrl);
+        window._ultimoPdfCampoUrl=URL.createObjectURL(blob);
+        const a=document.createElement("a");a.href=window._ultimoPdfCampoUrl;a.download=(auditoriaCampo.id||"AUDITORIA_CAMPO")+"_Chequeo_Condiciones_Seguridad_ZENER.pdf";document.body.appendChild(a);a.click();a.remove();
+    }catch(e){console.error(e);alert("No se ha podido generar el PDF de auditoría de campo: "+(e.message||e));}
+}
+async function verPdfAuditoriaCampoLocal(){
+    try{
+        const {blob}=await obtenerBlobPdfAuditoriaCampoLocal();
+        if(window._ultimoPdfCampoUrl)URL.revokeObjectURL(window._ultimoPdfCampoUrl);
+        window._ultimoPdfCampoUrl=URL.createObjectURL(blob); const w=window.open(window._ultimoPdfCampoUrl,"_blank","noopener"); if(!w)alert("El navegador ha bloqueado la ventana emergente. Use Generar PDF de prueba.");
+    }catch(e){console.error(e);alert("No se ha podido visualizar el PDF: "+(e.message||e));}
+}
+async function obtenerBlobPdfAuditoriaCampoLocal(){ const doc=await crearPdfAuditoriaCampoLocal(); return {doc,blob:doc.output("blob")}; }
+
+function crearPdfAuditoriaCampoLocal(){
+    return cargarJsPdfLocal().then(jsPDF=>{
+        const doc=new jsPDF({orientation:"p",unit:"mm",format:"a4"});
+        const FUENTE=registrarFuentesSegoeUI(doc);
+        const PW=210,PH=297,M=4,RIGHT=206, CW=202, TOP=31, BOTTOM=10;
+        let y=TOP, pagina=1;
+        const blue=[0,38,102], light=[255,246,214];
+        const encabezado=()=>{
+            doc.setFont(FUENTE,"bold");doc.setFontSize(11);doc.text("CHEQUEO DE CONDICIONES",M,8);doc.text("DE SEGURIDAD",M,13);
+            try{doc.addImage(LOGO_ZENER_PNG,"PNG",160,3,42,9,"ZENER_CAMPO","FAST");}catch(e){}
+            doc.setFont(FUENTE,"normal");doc.setFontSize(6.5);doc.text("AUDITORÍA SPM GRUPO ZENER · "+auditoriaCampo.id, M,18);
+            doc.setDrawColor(120);doc.line(M,20,RIGHT,20);
+        };
+        const pie=()=>{doc.setFont(FUENTE,"normal");doc.setFontSize(6);doc.text("Auditoría de campo · "+auditoriaCampo.id,M,293);doc.text("Página "+pagina,RIGHT,293,{align:"right"});};
+        const nueva=()=>{pie();doc.addPage();pagina++;encabezado();y=TOP;};
+        const wrap=(text,w,fs=6.3)=>{doc.setFontSize(fs);return doc.splitTextToSize(normalizarTextoPdf(text||""),w);};
+        const ensure=h=>{if(y+h>PH-BOTTOM)nueva();};
+        const cell=(x,yy,w,h,text,opts={})=>{doc.setDrawColor(80);doc.setFillColor(...(opts.fill||[255,255,255]));doc.rect(x,yy,w,h,opts.fill?"FD":"S");doc.setFont(FUENTE,opts.bold?"bold":"normal");doc.setFontSize(opts.fs||6.3);const lines=wrap(text,w-(opts.pad||1.2),opts.fs||6.3);const lh=opts.lh||2.7;const max=Math.max(1,Math.floor((h-1.2)/lh));doc.text(lines.slice(0,max),x+(opts.pad||1.2),yy+3.4);};
+        const section=(clave)=>{
+            const sec=ESTRUCTURA_AUDITORIA_CAMPO[clave];
+            const rows=sec.items; const rowH=6.4, headH=6.5;
+            ensure(headH+rows.length*rowH+2);
+            doc.setFillColor(...blue);doc.setDrawColor(60);doc.rect(M,y,CW,headH,"FD");
+            const wText=CW-30, w=10;
+            doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.setTextColor(255,255,255);doc.text(sec.titulo,M+2,y+4.3);doc.text("SI",M+wText+4,y+4.3);doc.text("NO",M+wText+w+4,y+4.3);doc.text("NA",M+wText+2*w+4,y+4.3);doc.setTextColor(0,0,0);y+=headH;
+            rows.forEach(([id,text])=>{const r=auditoriaCampo.comprobaciones[id]?.resultado||"";const lines=wrap(text,wText-16,6.0);const h=Math.max(rowH,lines.length*2.8+1.6);ensure(h);cell(M,y,wText, h, id+"  "+text,{fs:6.0});cell(M+wText,y,w,h,r==="SI"?"X":"",{fs:7,bold:true,pad:4});cell(M+wText+w,y,w,h,r==="NO"?"X":"",{fs:7,bold:true,pad:4});cell(M+wText+2*w,y,w,h,r==="NA"?"X":"",{fs:7,bold:true,pad:4});y+=h;});
+            y+=2;
+        };
+        encabezado();
+        // Datos superiores, respetando la estructura del documento original.
+        const topY=y, leftW=98, rightW=104, h1=7, h2=7, h3=7;
+        cell(M,y,leftW,h1,"Obra:",{bold:true,fs:6.4,fill:[255,255,255]}); cell(M+leftW,y,rightW,h1,"Fecha:  "+(auditoriaCampo.datos.fecha||""),{bold:true,fs:6.4}); y+=h1;
+        cell(M,y,leftW,h2,"Dirección:  "+auditoriaCampo.datos.direccion,{bold:true,fs:6.4}); cell(M+leftW,y,rightW,h2,"Cliente:  "+auditoriaCampo.datos.cliente,{bold:true,fs:6.4}); y+=h2;
+        cell(M,y,CW,h3,"Trabajos con riesgo especial (indicar):  "+auditoriaCampo.datos.trabajosRiesgoEspecial,{bold:true,fs:6.4}); y+=h3+3;
+        // Trabajadores
+        const wh=6.3, cols=[38,28,136], labels=["NOMBRE Y APELLIDOS","DNI","EMPRESA"];
+        cell(M,y,CW,wh,"LISTADO DE TRABAJADORES",{bold:true,fs:7,fill:blue});doc.setTextColor(255,255,255);doc.text("LISTADO DE TRABAJADORES",M+CW/2,y+4.3,{align:"center"});doc.setTextColor(0,0,0);y+=wh;
+        cols.forEach((w,i)=>cell(M+cols.slice(0,i).reduce((a,b)=>a+b,0),y,w,wh,labels[i],{bold:true,fs:6,fill:light}));y+=wh;
+        const trabajadores=auditoriaCampo.trabajadores.length?auditoriaCampo.trabajadores:[{nombre:"",dni:"",empresa:""}];
+        trabajadores.forEach(t=>{const vals=[t.nombre||"",t.dni||"",t.empresa||""];cols.forEach((w,i)=>cell(M+cols.slice(0,i).reduce((a,b)=>a+b,0),y,w,wh,vals[i],{fs:6}));y+=wh;});
+        y+=3;
+        ["GENERAL","VEHICULO","ZONA_TRABAJO","TRABAJOS_ALTURA"].forEach(section);
+        nueva();
+        ["ESPACIOS_CONFINADOS","RIESGO_ELECTRICO","OBRA_CIVIL"].forEach(section);
+        // Observaciones
+        ensure(55);doc.setFillColor(...blue);doc.rect(M,y,CW,6.5,"FD");doc.setTextColor(255,255,255);doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("OBSERVACIONES",M+CW/2,y+4.3,{align:"center"});doc.setTextColor(0,0,0);y+=6.5;doc.rect(M,y,CW,45);doc.setFont(FUENTE,"normal");doc.setFontSize(6.5);const obs=wrap(auditoriaCampo.observaciones||"",CW-4,6.5);doc.text(obs.slice(0,15),M+2,y+4);y+=49;
+        // Fotos, si existen, en páginas posteriores manteniendo el informe independiente.
+        const fotos=auditoriaCampo.fotografias.filter(f=>f.dataUrl);
+        if(fotos.length){nueva();doc.setFont(FUENTE,"bold");doc.setFontSize(11);doc.text("FOTOGRAFÍAS DE CAMPO",M,y);y+=8;for(let i=0;i<fotos.length;i++){ensure(75);doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("Fotografía "+(i+1),M,y);y+=4;try{const p=doc.getImageProperties(fotos[i].dataUrl),ratio=p.width/p.height;let w=92,h=w/ratio;if(h>62){h=62;w=h*ratio;}doc.addImage(fotos[i].dataUrl,undefined,M,y,w,h,undefined,"FAST");if(fotos[i].descripcion){doc.setFont(FUENTE,"normal");doc.setFontSize(6.5);doc.text(wrap(fotos[i].descripcion,92,6.5).slice(0,3),M+w+4,y+5);}y+=Math.max(66,h+8);}catch(e){y+=8;}}}
+        // Firmas: se mantienen en la segunda página, como en el documento original.
+        ensure(70);doc.setFont(FUENTE,"bold");doc.setFontSize(11);doc.text("FIRMAS",M,y);y+=8;const fw=96;doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("Firma del auditor",M,y);doc.text("Firma por los trabajadores",M+106,y);y+=4;const firma=(data,x)=>{if(!data)return;try{const p=doc.getImageProperties(data),r=p.width/p.height;let w=fw,h=w/r;if(h>45){h=45;w=h*r;}doc.addImage(data,undefined,x,y,w,h,undefined,"FAST");}catch(e){}};firma(auditoriaCampo.firmas.auditor,M);firma(auditoriaCampo.firmas.trabajador,M+106);doc.rect(M,y,fw,48);doc.rect(M+106,y,fw,48);y+=51;doc.setFont(FUENTE,"normal");doc.setFontSize(7);doc.text("Nombre y Apellidos: "+(auditoriaCampo.trabajadores[0]?.nombre||""),M,y);doc.text("Nombre y Apellidos: "+(auditoriaCampo.trabajadores.map(t=>t.nombre).filter(Boolean).join(", ")||""),M+106,y);y+=5;doc.text("Cargo: Auditor / SPM",M,y);doc.text("Cargo: Trabajador/es",M+106,y);pie();return doc;
+    });
+}
+
+(function inicializarSegundoDashboard(){
+    const init=()=>{
+        instalarDashboardAuditoriasIndependientes();
+        // Al entrar en la aplicación se muestra primero el selector de los dos tipos.
+        mostrarPantalla("auditoriasInicio");
+    };
+    if(document.readyState === "loading") document.addEventListener("DOMContentLoaded",init,{once:true}); else init();
+})();
