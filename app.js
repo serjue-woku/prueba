@@ -11151,7 +11151,17 @@ let auditoriaCampo = {
         obra: "",
         direccion: "",
         cliente: "",
-        trabajosRiesgoEspecial: ""
+        trabajosRiesgoEspecial: "",
+        auditor: "",
+        auditorCargo: "",
+        localizacion: {
+            tipo: "",
+            poblacion: "",
+            provincia: "",
+            codigoPostal: "",
+            latitud: null,
+            longitud: null
+        }
     },
     trabajadores: [],
     comprobaciones: {},
@@ -11214,8 +11224,10 @@ function instalarDashboardAuditoriasIndependientes() {
 }
 
 function abrirAuditoriaVehiculosDesdeInicio() {
+    // No se reinicia ni se borra la auditoría existente.
     mostrarPantalla("datosGenerales");
     inicializarCampoDniNie();
+    instalarBotonMenuInicialVehiculos();
 }
 
 function volverSelectorAuditorias() {
@@ -11244,7 +11256,7 @@ function instalarDashboardCampo() {
         <button type="button" class="module-card summary-card" onclick="abrirModuloCampo('resumen')"><span class="module-icon">📋</span><strong>Resumen / Finalizar / PDF</strong><span id="statusCampoFinal" class="status status-gray">BORRADOR</span></button>
       </div>
       <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
-        <button type="button" class="btn-secondary secondary-button" onclick="volverSelectorAuditorias()">← Cambiar tipo de auditoría</button>
+        <button type="button" class="btn-secondary secondary-button" onclick="volverSelectorAuditorias()">← Volver al menú inicial</button>
         <button type="button" class="btn-secondary secondary-button" onclick="abrirModuloCampo('trabajadores')">+ Añadir trabajador</button>
       </div>
     `;
@@ -11277,7 +11289,70 @@ function instalarDashboardCampo() {
     }
 }
 
+function sincronizarDatosVehiculosEnCampo() {
+    // Transfiere datos de la auditoría de Vehículos y Equipos a Campo sin borrar
+    // lo que el usuario ya haya introducido manualmente en Campo.
+    const dg = auditoria?.datosGenerales || {};
+    const loc = dg.localizacion || {};
+    const dc = auditoriaCampo.datos;
+
+    if (!dc.fecha && dg.fecha) dc.fecha = dg.fecha;
+    if (!dc.auditor && dg.auditor) dc.auditor = dg.auditor;
+    if (!dc.auditorCargo) dc.auditorCargo = "Auditor / SPM";
+
+    // La empresa/proyecto de Vehículos sirve como referencia inicial de cliente/obra.
+    if (!dc.cliente && dg.empresa) dc.cliente = dg.empresa;
+    if (!dc.obra && dg.proyecto) dc.obra = dg.proyecto;
+
+    // La ubicación GPS/manual pasa a Dirección y conserva coordenadas y datos de población.
+    if (!dc.direccion && loc.direccion) dc.direccion = loc.direccion;
+    dc.localizacion = dc.localizacion || {};
+    ["tipo", "poblacion", "provincia", "codigoPostal", "latitud", "longitud"].forEach(k => {
+        if ((dc.localizacion[k] === "" || dc.localizacion[k] == null) && loc[k] != null && loc[k] !== "") {
+            dc.localizacion[k] = loc[k];
+        }
+    });
+
+    // El trabajador de Vehículos se incorpora como primer trabajador de Campo.
+    // No se duplica si ya existe el mismo DNI.
+    const nombre = String(dg.trabajador || "").trim();
+    const dni = String(dg.dniNie || "").trim();
+    const empresa = String(dg.empresa || "").trim();
+    if (nombre || dni || empresa) {
+        const existe = auditoriaCampo.trabajadores.some(t =>
+            (dni && String(t.dni || "").trim().toUpperCase() === dni.toUpperCase()) ||
+            (!dni && nombre && String(t.nombre || "").trim().toUpperCase() === nombre.toUpperCase())
+        );
+        if (!existe) {
+            auditoriaCampo.trabajadores.unshift({
+                id: "TC-VDF-" + Date.now(),
+                nombre,
+                dni,
+                empresa
+            });
+        }
+    }
+}
+
+function instalarBotonMenuInicialVehiculos() {
+    const dashboard = document.getElementById("dashboard");
+    if (!dashboard || document.getElementById("btnMenuInicialVehiculos")) return;
+    const contenedor = dashboard.querySelector(".dashboard-header") || dashboard.firstElementChild;
+    const btn = document.createElement("button");
+    btn.id = "btnMenuInicialVehiculos";
+    btn.type = "button";
+    btn.className = "btn-secondary secondary-button";
+    btn.textContent = "← Volver al menú inicial";
+    btn.onclick = volverSelectorAuditorias;
+    if (contenedor) {
+        contenedor.appendChild(btn);
+    } else {
+        dashboard.insertBefore(btn, dashboard.firstChild);
+    }
+}
+
 function abrirAuditoriaCampoDesdeInicio() {
+    sincronizarDatosVehiculosEnCampo();
     inicializarAuditoriaCampo();
     mostrarPantalla("dashboardCampo");
     actualizarDashboardCampo();
@@ -11287,6 +11362,7 @@ function volverDashboardCampo() {
     mostrarPantalla("dashboardCampo");
     actualizarDashboardCampo();
 }
+
 
 function abrirModuloCampo(modulo) {
     inicializarAuditoriaCampo();
@@ -11318,6 +11394,7 @@ function guardarDatosCampoDesdeFormulario() {
     auditoriaCampo.datos.obra = document.getElementById(ids[1])?.value || "";
     auditoriaCampo.datos.direccion = document.getElementById(ids[2])?.value || "";
     auditoriaCampo.datos.cliente = document.getElementById(ids[3])?.value || "";
+    auditoriaCampo.datos.auditor = document.getElementById("campoAuditorCampo")?.value || auditoriaCampo.datos.auditor || "";
     auditoriaCampo.datos.trabajosRiesgoEspecial = document.getElementById(ids[4])?.value || "";
     auditoriaCampo.estado = auditoriaCampo.estado === "FINALIZADA" ? "FINALIZADA" : "EN_CURSO";
     actualizarDashboardCampo();
@@ -11330,6 +11407,9 @@ function renderModuloCampoDatos() {
       <div class="field"><label>Obra</label><input id="campoObra" value="${campoEsc(d.obra)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
       <div class="field"><label>Dirección</label><input id="campoDireccion" value="${campoEsc(d.direccion)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
       <div class="field"><label>Cliente</label><input id="campoCliente" value="${campoEsc(d.cliente)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+      <div class="field"><label>Auditor</label><input id="campoAuditorCampo" value="${campoEsc(d.auditor || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+      <div class="field"><label>Localización / población</label><input id="campoLocalizacionCampo" value="${campoEsc([d.localizacion?.poblacion,d.localizacion?.provincia].filter(Boolean).join(" · "))}" readonly></div>
+      <div class="field" style="grid-column:1/-1"><label>Dirección / ubicación</label><input id="campoDireccion" value="${campoEsc(d.direccion)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
       <div class="field" style="grid-column:1/-1"><label>Trabajos con riesgo especial (indicar)</label><input id="campoRiesgoEspecial" value="${campoEsc(d.trabajosRiesgoEspecial)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
     </div></div>`;
 }
@@ -11414,7 +11494,7 @@ function estadoChequeoCampo(){
 function actualizarDashboardCampo(){
     inicializarAuditoriaCampo();
     const d=auditoriaCampo.datos, chk=estadoChequeoCampo();
-    const ident=document.getElementById("dashboardCampoIdentificacion"); if(ident) ident.textContent=[d.obra,d.cliente,d.fecha].filter(Boolean).join(" · ") || auditoriaCampo.id;
+    const ident=document.getElementById("dashboardCampoIdentificacion"); if(ident) ident.textContent=[d.obra,d.cliente,d.fecha,d.auditor].filter(Boolean).join(" · ") || auditoriaCampo.id;
     const sd=document.getElementById("statusCampoDatos"); if(sd) sd.textContent=d.fecha?"COMPLETOS":"PENDIENTE";
     const st=document.getElementById("statusCampoTrabajadores"); if(st) st.textContent=String(auditoriaCampo.trabajadores.length)+" trabajador"+(auditoriaCampo.trabajadores.length===1?"":"es");
     const sc=document.getElementById("statusCampoChequeo"); if(sc) sc.textContent=`${chk.completadas}/${chk.total}`;
@@ -11508,7 +11588,7 @@ function crearPdfAuditoriaCampoLocal(){
         const fotos=auditoriaCampo.fotografias.filter(f=>f.dataUrl);
         if(fotos.length){nueva();doc.setFont(FUENTE,"bold");doc.setFontSize(11);doc.text("FOTOGRAFÍAS DE CAMPO",M,y);y+=8;for(let i=0;i<fotos.length;i++){ensure(75);doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("Fotografía "+(i+1),M,y);y+=4;try{const p=doc.getImageProperties(fotos[i].dataUrl),ratio=p.width/p.height;let w=92,h=w/ratio;if(h>62){h=62;w=h*ratio;}doc.addImage(fotos[i].dataUrl,undefined,M,y,w,h,undefined,"FAST");if(fotos[i].descripcion){doc.setFont(FUENTE,"normal");doc.setFontSize(6.5);doc.text(wrap(fotos[i].descripcion,92,6.5).slice(0,3),M+w+4,y+5);}y+=Math.max(66,h+8);}catch(e){y+=8;}}}
         // Firmas: se mantienen en la segunda página, como en el documento original.
-        ensure(70);doc.setFont(FUENTE,"bold");doc.setFontSize(11);doc.text("FIRMAS",M,y);y+=8;const fw=96;doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("Firma del auditor",M,y);doc.text("Firma por los trabajadores",M+106,y);y+=4;const firma=(data,x)=>{if(!data)return;try{const p=doc.getImageProperties(data),r=p.width/p.height;let w=fw,h=w/r;if(h>45){h=45;w=h*r;}doc.addImage(data,undefined,x,y,w,h,undefined,"FAST");}catch(e){}};firma(auditoriaCampo.firmas.auditor,M);firma(auditoriaCampo.firmas.trabajador,M+106);doc.rect(M,y,fw,48);doc.rect(M+106,y,fw,48);y+=51;doc.setFont(FUENTE,"normal");doc.setFontSize(7);doc.text("Nombre y Apellidos: "+(auditoriaCampo.trabajadores[0]?.nombre||""),M,y);doc.text("Nombre y Apellidos: "+(auditoriaCampo.trabajadores.map(t=>t.nombre).filter(Boolean).join(", ")||""),M+106,y);y+=5;doc.text("Cargo: Auditor / SPM",M,y);doc.text("Cargo: Trabajador/es",M+106,y);pie();return doc;
+        ensure(70);doc.setFont(FUENTE,"bold");doc.setFontSize(11);doc.text("FIRMAS",M,y);y+=8;const fw=96;doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("Firma del auditor",M,y);doc.text("Firma por los trabajadores",M+106,y);y+=4;const firma=(data,x)=>{if(!data)return;try{const p=doc.getImageProperties(data),r=p.width/p.height;let w=fw,h=w/r;if(h>45){h=45;w=h*r;}doc.addImage(data,undefined,x,y,w,h,undefined,"FAST");}catch(e){}};firma(auditoriaCampo.firmas.auditor,M);firma(auditoriaCampo.firmas.trabajador,M+106);doc.rect(M,y,fw,48);doc.rect(M+106,y,fw,48);y+=51;doc.setFont(FUENTE,"normal");doc.setFontSize(7);doc.text("Nombre y Apellidos: "+(auditoriaCampo.datos.auditor||""),M,y);doc.text("Nombre y Apellidos: "+(auditoriaCampo.trabajadores.map(t=>t.nombre).filter(Boolean).join(", ")||""),M+106,y);y+=5;doc.text("Cargo: "+(auditoriaCampo.datos.auditorCargo||"Auditor / SPM"),M,y);doc.text("Cargo: Trabajador/es",M+106,y);pie();return doc;
     });
 }
 
