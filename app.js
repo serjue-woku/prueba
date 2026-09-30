@@ -3276,6 +3276,9 @@ function renderizarModuloVehiculo() {
                 auditada se utiliza vehículo.
             </p>
 
+            <div class="vehicle-actions" style="margin:8px 0;">
+                <button type="button" class="secondary-button" onclick="marcarModuloVehiculoNoAplica()">NO APLICA — no se utiliza vehículo</button>
+            </div>
 
             <div class="radio-group">
 
@@ -3826,6 +3829,7 @@ function renderizarDatosVehiculo() {
                 Guardar vehículo
             </button>
 
+            <button type="button" class="secondary-button" onclick="marcarModuloVehiculoNoAplica()">NO APLICA — no se utiliza vehículo</button>
 
             <button
                 type="button"
@@ -5211,6 +5215,16 @@ function registrarFotoVehiculo(clave) {
    GUARDAR VEHÍCULO
    ========================================================= */
 
+function marcarModuloVehiculoNoAplica() {
+    const vehiculo = auditoria.modulos.vehiculo;
+    if (!confirm("¿Marcar el módulo VEHÍCULO como NO APLICA? Se conservarán los datos introducidos.")) return;
+    vehiculo.estado = "NO_APLICA";
+    vehiculo.utiliza = false;
+    actualizarEstadoModulo("vehiculo", "NO_APLICA");
+    actualizarDashboard();
+    volverDashboard();
+}
+
 function guardarVehiculo() {
 
     const vehiculo =
@@ -5543,6 +5557,10 @@ function renderizarModuloExtintor() {
                 disponible en el vehículo, instalación o puesto de trabajo.
             </p>
 
+            <div class="vehicle-actions" style="margin:8px 0;">
+                <button type="button" class="secondary-button" onclick="marcarModuloExtintorNoAplica()">NO APLICA — no existe extintor que deba comprobarse</button>
+            </div>
+
             <div class="form-group">
 
                 <label>
@@ -5576,6 +5594,10 @@ function renderizarModuloExtintor() {
                 </div>
 
             </div>
+
+        <div class="vehicle-actions">
+            <button type="button" class="secondary-button" onclick="marcarModuloExtintorNoAplica()">NO APLICA — no existe extintor que deba comprobarse</button>
+        </div>
 
     `;
 
@@ -6214,6 +6236,16 @@ function obtenerNombreControlExtintor(nombre) {
     return nombres[nombre] || nombre;
 
 }
+function marcarModuloExtintorNoAplica() {
+    const extintor = auditoria.modulos.extintor;
+    if (!confirm("¿Marcar el módulo EXTINTOR como NO APLICA? Se conservarán los datos introducidos.")) return;
+    extintor.estado = "NO_APLICA";
+    extintor.dispone = false;
+    actualizarEstadoModulo("extintor", "NO_APLICA");
+    actualizarDashboard();
+    volverDashboard();
+}
+
 function guardarExtintor() {
 
     const extintor =
@@ -6453,7 +6485,13 @@ function renderizarModuloBotiquin() {
     const contenido = document.getElementById("contenidoModulo");
     if (!contenido) return;
 
-    let html = `<div class="module-intro"><h3>Comprobación del botiquín</h3><p>La documentación de referencia establece que cada vehículo llevará un botiquín, con material en buen estado y sin caducar.</p></div><div class="card"><h3>1. Disponibilidad</h3><div class="form-group"><label>¿Se dispone de botiquín en el vehículo?</label><div class="radio-group"><label><input type="radio" name="disponeBotiquin" value="SI" ${b.dispone === true ? "checked" : ""} onchange="cambiarDisponibilidadBotiquin('SI')"> Sí</label><label><input type="radio" name="disponeBotiquin" value="NO" ${b.dispone === false ? "checked" : ""} onchange="cambiarDisponibilidadBotiquin('NO')"> No</label></div></div></div>`;
+    if (b.estado === "NO_APLICA") {
+        contenido.innerHTML = `<div class="card vehicle-not-applicable module-not-applicable"><h3>BOTIQUÍN — NO APLICA</h3><p>El botiquín no es exigible en este supuesto de trabajo.</p><div class="vehicle-actions"><button type="button" class="primary-button" onclick="reactivarModuloBotiquin()">Reactivar módulo Botiquín</button><button type="button" class="secondary-button" onclick="volverDashboard()">Volver al Dashboard</button></div></div>`;
+        actualizarDashboard();
+        return;
+    }
+
+    let html = `<div class="module-intro"><h3>Comprobación del botiquín</h3><p>La documentación de referencia establece que cada vehículo llevará un botiquín, con material en buen estado y sin caducar.</p><div class="vehicle-actions" style="margin:8px 0;"><button type="button" class="secondary-button" onclick="marcarModuloBotiquinNoAplica()">NO APLICA — el botiquín no es exigible en este supuesto</button></div></div><div class="card"><h3>1. Disponibilidad</h3><div class="form-group"><label>¿Se dispone de botiquín en el vehículo?</label><div class="radio-group"><label><input type="radio" name="disponeBotiquin" value="SI" ${b.dispone === true ? "checked" : ""} onchange="cambiarDisponibilidadBotiquin('SI')"> Sí</label><label><input type="radio" name="disponeBotiquin" value="NO" ${b.dispone === false ? "checked" : ""} onchange="cambiarDisponibilidadBotiquin('NO')"> No</label></div></div></div>`;
 
     if (b.dispone === null) { contenido.innerHTML = html; return; }
 
@@ -6474,7 +6512,7 @@ function renderizarModuloBotiquin() {
         html += `<div class="vehicle-control botiquin-elemento"><div class="vehicle-control-main"><div class="vehicle-control-text"><strong>${escapeHtml(item.nombre)}</strong></div><div class="form-group"><label>Fecha</label><input type="date" value="${escapeHtml(c.fecha)}" max="" onchange="actualizarFechaElementoBotiquin('${item.id}', this.value)"><small>Opcional</small></div><div class="vehicle-result-group"><span class="result-badge ${incorrecto ? "result-incorrect" : "result-correct"}">${incorrecto ? "INCORRECTO" : "CORRECTO"}</span></div></div>${incorrecto ? `<div class="vehicle-incident-detail"><div class="vehicle-incident-title">NO CONFORMIDAD / INCIDENCIA</div><div class="vehicle-incident-inner"><label>Descripción de la incidencia *</label><textarea rows="2" onchange="actualizarDatoIncidenciaElementoBotiquin('${item.id}', 'descripcion', this.value)">${escapeHtml(c.descripcion)}</textarea><label>Medida correctiva propuesta *</label><textarea rows="2" onchange="actualizarDatoIncidenciaElementoBotiquin('${item.id}', 'medida', this.value)">${escapeHtml(c.medida)}</textarea><label>Observaciones</label><textarea rows="2" onchange="actualizarDatoIncidenciaElementoBotiquin('${item.id}', 'observaciones', this.value)">${escapeHtml(c.observaciones)}</textarea><button type="button" class="btn-secondary" onclick="registrarFotoElementoBotiquin('${item.id}')">📷 Añadir fotografía</button><small>${c.foto ? "Fotografía registrada" : "La fotografía es opcional."}</small></div></div>` : ""}</div>`;
     });
 
-    html += `</div></div><div class="card"><h3>4. Comprobaciones generales</h3><p class="vehicle-help">Estas comprobaciones se mantienen como controles independientes.</p>${crearControlBotiquin("materialBuenEstado", "El material del botiquín se encuentra en buen estado.")}${crearControlBotiquin("materialNoCaducado", "El material del botiquín se encuentra sin caducar.")}${crearControlBotiquin("comunicacionDeficiencias", "Las deficiencias por material caducado, deteriorado o consumido han sido comunicadas para su subsanación.")}</div><div class="vehicle-actions"><button type="button" class="btn-primary" onclick="guardarBotiquin()">Guardar botiquín y completar módulo</button></div>`;
+    html += `</div></div><div class="card"><h3>4. Comprobaciones generales</h3><p class="vehicle-help">Estas comprobaciones se mantienen como controles independientes.</p>${crearControlBotiquin("materialBuenEstado", "El material del botiquín se encuentra en buen estado.")}${crearControlBotiquin("materialNoCaducado", "El material del botiquín se encuentra sin caducar.")}${crearControlBotiquin("comunicacionDeficiencias", "Las deficiencias por material caducado, deteriorado o consumido han sido comunicadas para su subsanación.")}</div><div class="vehicle-actions"><button type="button" class="btn-primary" onclick="guardarBotiquin()">Guardar botiquín y completar módulo</button><button type="button" class="secondary-button" onclick="marcarModuloBotiquinNoAplica()">NO APLICA — el botiquín no es exigible en este supuesto</button></div>`;
 
     contenido.innerHTML = html;
 }
@@ -6947,6 +6985,23 @@ function registrarFotoElementoBotiquin(idElemento) {
         actualizarDashboard();
     });
 }
+function marcarModuloBotiquinNoAplica() {
+    const b = auditoria.modulos.botiquin;
+    if (!confirm("¿Marcar el módulo BOTIQUÍN como NO APLICA? Se conservarán los datos introducidos.")) return;
+    b.estado = "NO_APLICA";
+    actualizarEstadoModulo("botiquin", "NO_APLICA");
+    actualizarDashboard();
+    volverDashboard();
+}
+
+function reactivarModuloBotiquin() {
+    const b = auditoria.modulos.botiquin;
+    b.estado = "EN_CURSO";
+    actualizarEstadoModulo("botiquin", "EN_CURSO");
+    renderizarModuloBotiquin();
+    actualizarDashboard();
+}
+
 function guardarBotiquin() { const b = auditoria.modulos.botiquin; if (b.dispone === null) { alert("Debe indicar si dispone de botiquín en el vehículo."); return; } if (b.dispone === false) { const c = b.controles.disponibilidad; if (!c || !c.descripcion.trim() || !c.medida.trim()) { alert("Al indicar que no se dispone de botiquín debe describir la deficiencia y la medida correctiva."); return; } sincronizarIncidenciaBotiquin("disponibilidad"); b.estado = "COMPLETADO"; actualizarDashboard(); alert("Módulo Botiquín completado con una incidencia."); volverDashboard(); return; } for (const item of obtenerElementosBotiquin()) { const c = b.elementos[item.id]; actualizarResultadoFechaBotiquin(item.id, false); if (c.resultado === "INCORRECTO" && (!c.descripcion.trim() || !c.medida.trim())) { alert(`Complete la descripción y la medida correctiva de la incidencia del elemento: ${item.nombre}.`); return; } if (c.resultado === "INCORRECTO") sincronizarIncidenciaElementoBotiquin(item.id); } for (const nombre of ["materialBuenEstado", "materialNoCaducado", "comunicacionDeficiencias"]) { const c = b.controles[nombre]; if (!c || !c.resultado) { alert("Debe completar todas las comprobaciones del botiquín."); return; } if (c.resultado === "INCORRECTO" && (!c.descripcion.trim() || !c.medida.trim())) { alert("Complete la descripción y la medida correctiva de las incidencias del botiquín."); return; } sincronizarIncidenciaBotiquin(nombre); } b.estado = "COMPLETADO"; actualizarDashboard(); alert("Módulo Botiquín completado correctamente."); volverDashboard(); }
 
 /* =========================================================
