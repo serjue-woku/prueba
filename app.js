@@ -2016,7 +2016,33 @@ function mostrarPantalla(
         pantalla.classList.add(
             "active"
         );
+
+        // En Datos Generales también se permite volver directamente al
+        // Dashboard principal de Vehículos y Equipos, sin perder ningún dato.
+        if (id === "datosGenerales") {
+            asegurarBotonDashboardDatosGenerales();
+        }
     }
+}
+
+
+/* =========================================================
+   BOTÓN DASHBOARD EN DATOS GENERALES
+   ========================================================= */
+
+function asegurarBotonDashboardDatosGenerales() {
+    const pantalla = document.getElementById("datosGenerales");
+    if (!pantalla) return;
+
+    if (pantalla.querySelector("[data-boton-dashboard-datos-generales='true']")) return;
+
+    const barra = document.createElement("div");
+    barra.setAttribute("data-boton-dashboard-datos-generales", "true");
+    barra.style.cssText = "display:flex;justify-content:flex-start;gap:10px;margin:0 0 12px 0;";
+    barra.innerHTML = `<button type="button" class="btn-secondary secondary-button" onclick="guardarDatosGenerales(); volverDashboard();">← Volver al Dashboard principal</button>`;
+
+    // Se coloca al principio de Datos Generales para que siempre sea visible.
+    pantalla.insertBefore(barra, pantalla.firstChild);
 }
 
 
