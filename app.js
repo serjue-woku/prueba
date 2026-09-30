@@ -8226,7 +8226,6 @@ function renderizarControlRadio(id, claveSub, definicion, sub) {
 function renderizarUnidadRadio(unidad) {
     const definicion = obtenerEstructuraRadio()[unidad.tipo];
     unidad.estadoElemento = normalizarEstadoElemento(unidad.estadoElemento);
-    if (unidad.estadoElemento === "ACTIVO") sincronizarVeredictoEpi(claveEpi, unidad, true);
     const nombreElemento = (definicion.nombre || unidad.tipo) + (definicion.multiple ? " #" + unidad.numero : "");
     let html = `<div class="card epi-card radio-epi-card"><h3>${escapeHtml(nombreElemento)}</h3>`;
     html += renderizarSelectorEstadoElemento(unidad.estadoElemento, `cambiarEstadoElementoRadio('${unidad.id}', `, nombreElemento);
@@ -9637,7 +9636,7 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
             </div>
             <div class="field"><label><strong>VEREDICTO DE LA REVISIÓN DEL FABRICANTE *</strong></label>
                 <select id="${idVeredicto}" onchange="${eventoVeredicto}">
-                    <option value="">Seleccionar veredicto</option>
+                    <option value="">Pendiente de comprobación</option>
                     <option value="APTO" ${revision.resultado === "APTO" ? "selected" : ""}>E.P.I. ACEPTADO / APTO</option>
                     <option value="NO_APTO" ${revision.resultado === "NO_APTO" ? "selected" : ""}>E.P.I. RECHAZADO / NO APTO</option>
                 </select>
@@ -9681,7 +9680,7 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
             <div class="field"><label>Verificado por</label><input type="text" value="${escapeHtml(revision.verificadoPor || "")}" oninput="${llamadaCampo("verificadoPor")}"></div>
             <div class="field"><label><strong>VEREDICTO DE LA REVISIÓN *</strong></label>
                 <select id="${idVeredicto}" onchange="${eventoVeredicto}">
-                    <option value="">Seleccionar veredicto</option>
+                    <option value="">Pendiente de comprobación</option>
                     <option value="APTO" ${revision.resultado === "APTO" ? "selected" : ""}>APTO</option>
                     <option value="NO_APTO" ${revision.resultado === "NO_APTO" ? "selected" : ""}>NO APTO</option>
                 </select>
@@ -9721,7 +9720,7 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
             <div class="field"><label>Verificado por</label><input type="text" value="${escapeHtml(revision.verificadoPor || "")}" oninput="${llamadaCampo("verificadoPor")}"></div>
             <div class="field"><label><strong>VEREDICTO DE LA REVISIÓN *</strong></label>
                 <select id="${idVeredicto}" onchange="${eventoVeredicto}">
-                    <option value="">Seleccionar veredicto</option>
+                    <option value="">Pendiente de comprobación</option>
                     <option value="APTO" ${revision.resultado === "APTO" ? "selected" : ""}>APTO</option>
                     <option value="NO_APTO" ${revision.resultado === "NO_APTO" ? "selected" : ""}>NO APTO</option>
                 </select>
@@ -10092,6 +10091,10 @@ function renderizarModuloEpis() {
         html += renderizarEstadoDocumentalEpi(controlEpi.campos ? controlEpi.campos.marca : "", claveEpi);
 
         if (controlEpi.estadoElemento === "ACTIVO") {
+            // El veredicto del EPI se calcula antes de pintar la interfaz.
+            // Si todos los controles aplicables son positivos, queda APTO
+            // automáticamente; si el auditor ha elegido NO APTO, se conserva.
+            sincronizarVeredictoEpi(claveEpi, controlEpi, true);
             Object.keys(subcontroles).forEach(claveSub => {
                 html += renderizarControlEpi(claveEpi, claveSub, subcontroles[claveSub], controlEpi.subcontroles[claveSub]);
             });
@@ -10153,6 +10156,9 @@ function renderizarUnidadEpiMultiple(claveEpi, unidad) {
     });
     html += `</div></div>`;
     if (unidad.estadoElemento === "ACTIVO") {
+        // Igual que en los EPI únicos, el veredicto se sincroniza antes del
+        // render para que APTO aparezca realmente seleccionado en pantalla.
+        sincronizarVeredictoEpi(claveEpi, unidad, true);
         Object.keys(definicion.controles).forEach(claveSub => {
             html += renderizarControlEpiMultiple(claveEpi, unidad.id, claveSub, definicion.controles[claveSub], unidad.subcontroles[claveSub]);
         });
