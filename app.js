@@ -2243,7 +2243,8 @@ function obtenerResumenEscaleras() {
         modelo: u.datos && u.datos.modelo || "",
         identificacion: u.datos && u.datos.identificacion || "",
         estado: u.estado || "NO_INICIADO",
-        incorrectos: Object.values(u.controles || {}).filter(c => c && c.resultado === "INCORRECTO").length
+        incorrectos: Object.values(u.controles || {}).filter(c => c && c.resultado === "INCORRECTO").length,
+        fotografiasIdentificacion: u.fotografiasIdentificacion || {}
     })) : [];
 }
 
@@ -2759,6 +2760,38 @@ function crearPdfAuditoriaLocal() {
         titulo("7. Escaleras");
         if (escaleras.length) {
             tabla(escaleras.map(e => [e.nombre, e.tipo, e.fabricante, e.modelo, e.identificacion, textoEstadoResumen(e.estado)]), [27, 23, 32, 29, 31, 28], ["Escalera", "Tipo", "Fabricante", "Modelo", "Identificación", "Estado"]);
+
+            // Fotografías de identificación asociadas a cada escalera, máximo 4 por unidad.
+            auditoria.modulos.escaleras.unidades.forEach((unidad, idx) => {
+                inicializarFotografiasIdentificacionEscalera(unidad);
+                const fotosEscalera = [
+                    ["pegatinaRevision1", "Fotografía pegatina revisión 1"],
+                    ["pegatinaRevision2", "Fotografía pegatina revisión 2"],
+                    ["placaIdentificativa1", "Fotografía placa identificativa 1"],
+                    ["placaIdentificativa2", "Fotografía placa identificativa 2"]
+                ].filter(([clave]) => unidad.fotografiasIdentificacion[clave] && unidad.fotografiasIdentificacion[clave].dataUrl);
+                if (!fotosEscalera.length) return;
+                asegurar(28);
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(9);
+                doc.text("Fotografías de identificación — Escalera " + (idx + 1), margen, y);
+                y += 6;
+                fotosEscalera.forEach(([clave, etiqueta]) => {
+                    const foto = unidad.fotografiasIdentificacion[clave];
+                    asegurar(62);
+                    doc.setFont("helvetica", "bold");
+                    doc.setFontSize(8);
+                    doc.text(etiqueta, margen, y);
+                    y += 4;
+                    imagen(foto.dataUrl, margen, y, 80, 52);
+                    if (foto.descripcion) {
+                        doc.setFont("helvetica", "normal");
+                        doc.setFontSize(7);
+                        doc.text(normalizarTextoPdf(foto.descripcion), 105, y + 5, { maxWidth: 85 });
+                    }
+                    y += 57;
+                });
+            });
         } else parrafo("No hay escaleras registradas.");
 
         const botiquin = obtenerResumenBotiquinPdf();
@@ -6932,6 +6965,12 @@ function crearUnidadEscaleraVacia(tipo = "") {
             observaciones: ""
         },
         controles: {},
+        fotografiasIdentificacion: {
+            pegatinaRevision1: null,
+            pegatinaRevision2: null,
+            placaIdentificativa1: null,
+            placaIdentificativa2: null
+        },
         estado: "EN_CURSO"
     };
 }
@@ -6991,6 +7030,79 @@ function inicializarControlesUnidadEscalera(unidad) {
 }
 
 
+function inicializarFotografiasIdentificacionEscalera(unidad) {
+    if (!unidad.fotografiasIdentificacion || typeof unidad.fotografiasIdentificacion !== "object") {
+        unidad.fotografiasIdentificacion = {};
+    }
+    const claves = ["pegatinaRevision1", "pegatinaRevision2", "placaIdentificativa1", "placaIdentificativa2"];
+    claves.forEach(clave => {
+        if (!unidad.fotografiasIdentificacion[clave] || typeof unidad.fotografiasIdentificacion[clave] !== "object") {
+            unidad.fotografiasIdentificacion[clave] = null;
+        }
+    });
+}
+
+function obtenerEtiquetaFotografiaEscalera(clave) {
+    const etiquetas = {
+        pegatinaRevision1: "Fotografía pegatina revisión 1",
+        pegatinaRevision2: "Fotografía pegatina revisión 2",
+        placaIdentificativa1: "Fotografía placa identificativa 1",
+        placaIdentificativa2: "Fotografía placa identificativa 2"
+    };
+    return etiquetas[clave] || clave;
+}
+
+function renderizarFotografiasIdentificacionEscalera(unidad) {
+    inicializarFotografiasIdentificacionEscalera(unidad);
+    const claves = ["pegatinaRevision1", "pegatinaRevision2", "placaIdentificativa1", "placaIdentificativa2"];
+    return `
+        <div class="card escalera-fotografias-card">
+            <h4>Fotografías de identificación — Escalera</h4>
+            <p class="vehicle-help">Puede añadir hasta 4 fotografías asociadas exclusivamente a esta escalera.</p>
+            <div class="form-grid">
+                ${claves.map(clave => {
+                    const foto = unidad.fotografiasIdentificacion[clave];
+                    const etiqueta = obtenerEtiquetaFotografiaEscalera(clave);
+                    return `
+                        <div class="field">
+                            <label>${escapeHtml(etiqueta)}</label>
+                            ${foto && foto.dataUrl ? `
+                                <div class="photo-preview" style="margin:6px 0;">
+                                    <img src="${foto.dataUrl}" alt="${escapeHtml(etiqueta)}" style="max-width:220px;max-height:160px;display:block;border-radius:6px;object-fit:contain;">
+                                    <small>${escapeHtml(foto.nombreArchivo || etiqueta)}</small>
+                                    <br><button type="button" class="secondary-button" onclick="eliminarFotoIdentificacionEscalera('${unidad.id}','${clave}')">Eliminar fotografía</button>
+                                </div>` : `
+                                <button type="button" class="secondary-button" onclick="registrarFotoIdentificacionEscalera('${unidad.id}','${clave}')">📷 Añadir fotografía</button>
+                                <small>Opcional. Se recomienda fotografiar claramente la identificación correspondiente.</small>`}
+                        </div>`;
+                }).join("")}
+            </div>
+        </div>
+    `;
+}
+
+function registrarFotoIdentificacionEscalera(idUnidad, clave) {
+    const unidad = obtenerUnidadEscalera(idUnidad);
+    if (!unidad) return;
+    inicializarFotografiasIdentificacionEscalera(unidad);
+    const etiqueta = obtenerEtiquetaFotografiaEscalera(clave);
+    seleccionarFotografiaEnMemoria(function (foto) {
+        foto.descripcion = etiqueta;
+        unidad.fotografiasIdentificacion[clave] = foto;
+        renderizarModuloEscaleras();
+        actualizarDashboard();
+    });
+}
+
+function eliminarFotoIdentificacionEscalera(idUnidad, clave) {
+    const unidad = obtenerUnidadEscalera(idUnidad);
+    if (!unidad) return;
+    inicializarFotografiasIdentificacionEscalera(unidad);
+    unidad.fotografiasIdentificacion[clave] = null;
+    renderizarModuloEscaleras();
+    actualizarDashboard();
+}
+
 function inicializarEscaleras() {
 
     const escaleras = auditoria.modulos.escaleras;
@@ -7025,6 +7137,7 @@ function inicializarEscaleras() {
             unidad.datos = { fabricante: "", modelo: "", identificacion: "", observaciones: "" };
         }
         inicializarControlesUnidadEscalera(unidad);
+        inicializarFotografiasIdentificacionEscalera(unidad);
     });
 }
 
@@ -7145,6 +7258,7 @@ function renderizarUnidadEscalera(unidad, indice) {
     }
 
     html += renderizarDatosUnidadEscalera(unidad);
+    html += renderizarFotografiasIdentificacionEscalera(unidad);
     html += `<h4>Comprobaciones — Escalera ${indice + 1}</h4><p class="vehicle-help">Seleccione CORRECTO, INCORRECTO o NO PROCEDE.</p>`;
 
     obtenerControlesEscalera(unidad.tipo).forEach(nombre => {
