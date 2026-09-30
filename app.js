@@ -2589,138 +2589,150 @@ function recopilarFotografiasAuditoriaPdf() {
 function crearPdfAuditoriaLocal() {
     return cargarJsPdfLocal().then(jsPDF => {
         const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
-        const margen = 14;
-        const ancho = 210;
-        const alto = 297;
-        const anchoTexto = ancho - margen * 2;
-        // Zona segura de contenido: deja espacio suficiente para el pie de página y evita que
-        // las últimas líneas de un apartado queden montadas/cortadas.
-        const limiteContenido = alto - 24;
-        let y = 18;
-        let pagina = 1;
+        const PAGE_W = 210, PAGE_H = 297;
+        const M = 14, CONTENT_W = PAGE_W - (M * 2);
+        const TOP = 18, BOTTOM = 23;
+        const CONTENT_BOTTOM = PAGE_H - BOTTOM;
+        let y = TOP, pagina = 1;
 
         const fechaHora = () => {
-            const fecha = auditoria.fechaFinalizacion || auditoria.datosGenerales.fecha || "";
-            const hora = auditoria.horaFinalizacion || auditoria.datosGenerales.horaInicio || "";
+            const fecha = auditoria.fechaFinalizacion || (auditoria.datosGenerales || {}).fecha || "";
+            const hora = auditoria.horaFinalizacion || (auditoria.datosGenerales || {}).horaInicio || "";
             return [fecha, hora].filter(Boolean).join(" ");
         };
 
         function encabezado() {
             doc.setFont("helvetica", "bold");
             doc.setFontSize(9);
-            doc.text("AUDITORÍA DE VEHÍCULOS", margen, 9);
+            doc.text("AUDITORÍA DE VEHÍCULOS", M, 9);
             doc.setFont("helvetica", "normal");
             doc.setFontSize(8);
-            doc.text("ID: " + normalizarTextoPdf(auditoria.id), ancho - margen, 9, { align: "right" });
+            doc.text("ID: " + normalizarTextoPdf(auditoria.id || "-"), PAGE_W - M, 9, { align: "right" });
             doc.setDrawColor(180);
-            doc.line(margen, 11, ancho - margen, 11);
+            doc.line(M, 11, PAGE_W - M, 11);
         }
-
         function pie() {
             doc.setDrawColor(200);
-            doc.line(margen, alto - 11, ancho - margen, alto - 11);
+            doc.line(M, PAGE_H - 11, PAGE_W - M, PAGE_H - 11);
             doc.setFont("helvetica", "normal");
             doc.setFontSize(7);
-            doc.text("Resumen generado localmente en la aplicación", margen, alto - 6);
-            doc.text("Página " + pagina, ancho - margen, alto - 6, { align: "right" });
+            doc.text("Resumen generado localmente en la aplicación", M, PAGE_H - 6);
+            doc.text("Página " + pagina, PAGE_W - M, PAGE_H - 6, { align: "right" });
         }
-
         function nuevaPagina() {
             pie();
             doc.addPage();
-            pagina += 1;
+            pagina++;
             encabezado();
-            y = 18;
+            y = TOP;
         }
-
-        function asegurar(altura) {
-            if (y + altura > limiteContenido) nuevaPagina();
+        function asegurar(h, margenExtra = 0) {
+            const altura = Math.max(0, Number(h) || 0) + margenExtra;
+            if (y + altura > CONTENT_BOTTOM) nuevaPagina();
         }
-
+        function textoLineas(texto, ancho, tam=8.5) {
+            doc.setFontSize(tam);
+            return doc.splitTextToSize(normalizarTextoPdf(texto == null ? "" : String(texto)), ancho);
+        }
         function titulo(texto) {
             asegurar(12);
-            doc.setFillColor(235, 235, 235);
-            doc.rect(margen, y - 5, anchoTexto, 8, "F");
-            doc.setFont("helvetica", "bold");
-            doc.setFontSize(11);
-            doc.text(normalizarTextoPdf(texto), margen + 2, y);
-            y += 8;
+            doc.setFillColor(235,235,235);
+            doc.rect(M, y - 5, CONTENT_W, 8, "F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(11);
+            doc.text(normalizarTextoPdf(texto), M + 2, y);
+            y += 9;
         }
-
         function linea(label, valor) {
-            const texto = normalizarTextoPdf(label + ": " + (valor || "-"));
-            const lineas = doc.splitTextToSize(texto, anchoTexto);
-            asegurar(lineas.length * 4.5 + 2);
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(8.5);
-            doc.text(lineas, margen, y);
-            y += lineas.length * 4.5;
+            const lines = textoLineas(label + ": " + (valor || "-"), CONTENT_W, 8.5);
+            const h = Math.max(4.5, lines.length * 4.4) + 2;
+            asegurar(h);
+            doc.setFont("helvetica","normal"); doc.setFontSize(8.5);
+            doc.text(lines, M, y);
+            y += h;
         }
-
         function parrafo(texto) {
-            const lineas = doc.splitTextToSize(normalizarTextoPdf(texto || ""), anchoTexto);
-            asegurar(Math.max(1, lineas.length) * 4.2 + 2);
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(8.2);
-            doc.text(lineas, margen, y);
-            y += Math.max(1, lineas.length) * 4.2 + 1;
+            const lines = textoLineas(texto || "", CONTENT_W, 8.2);
+            const h = Math.max(4.5, lines.length * 4.2) + 2;
+            asegurar(h);
+            doc.setFont("helvetica","normal"); doc.setFontSize(8.2);
+            doc.text(lines, M, y);
+            y += h;
         }
 
+        // Tabla robusta: calcula la altura de cada fila antes de pintarla y nunca
+        // permite que una fila atraviese el límite inferior de la página.
         function tabla(filas, anchos, encabezados) {
-            const altoFila = 6; const xs=[margen]; anchos.forEach(w=>xs.push(xs[xs.length-1]+w));
-            const calc=celdas=>{const lineas=celdas.map((c,i)=>doc.splitTextToSize(normalizarTextoPdf(c),anchos[i]-2));const n=Math.max(1,...lineas.map(a=>a.length));return {lineas,h:Math.max(altoFila,n*3.7+2.3)};};
-            const cab=calc(encabezados), datos=filas.map(calc), total=cab.h+datos.reduce((a,r)=>a+r.h,0)+3;
-            if(total <= (limiteContenido-18) && y+total > limiteContenido) nuevaPagina();
-            function dibujar(celdas,cabecera,info){const d=info||calc(celdas);if(y+d.h>limiteContenido){nuevaPagina();if(!cabecera)dibujar(encabezados,true,cab);}if(cabecera){doc.setFillColor(225,225,225);doc.rect(margen,y-4.2,anchoTexto,d.h,"F");}doc.setDrawColor(190);doc.rect(margen,y-4.2,anchoTexto,d.h);for(let i=0;i<celdas.length;i++){if(i>0)doc.line(xs[i],y-4.2,xs[i],y-4.2+d.h);doc.setFont("helvetica",cabecera?"bold":"normal");doc.setFontSize(cabecera?7.2:6.9);doc.text(d.lineas[i],xs[i]+1,y);}y+=d.h;}
-            dibujar(encabezados,true,cab);filas.forEach((f,i)=>dibujar(f,false,datos[i]));y+=3;
+            const suma = anchos.reduce((a,b)=>a+b,0);
+            const factor = suma > CONTENT_W ? CONTENT_W / suma : 1;
+            const widths = anchos.map(w=>w*factor);
+            const xs=[M]; widths.forEach(w=>xs.push(xs[xs.length-1]+w));
+
+            function medir(celdas, header=false) {
+                const fs = header ? 7.1 : 6.8;
+                const lh = header ? 3.2 : 3.35;
+                const lines = celdas.map((c,i)=>textoLineas(c, Math.max(8,widths[i]-2), fs));
+                const n = Math.max(1,...lines.map(a=>a.length));
+                return { lines, h: Math.max(6.2, n*lh+2.5), fs, lh };
+            }
+            function dibujarFila(celdas, header=false) {
+                const m = medir(celdas, header);
+                if (y + m.h > CONTENT_BOTTOM) nuevaPagina();
+                doc.setFillColor(header ? 225 : 255, header ? 225 : 255, header ? 225 : 255);
+                doc.setDrawColor(185);
+                doc.rect(M, y-4.0, CONTENT_W, m.h, header ? "FD" : "S");
+                for (let i=0;i<celdas.length;i++) {
+                    if (i>0) doc.line(xs[i], y-4.0, xs[i], y-4.0+m.h);
+                    doc.setFont("helvetica", header ? "bold" : "normal");
+                    doc.setFontSize(m.fs);
+                    doc.text(m.lines[i], xs[i]+1, y);
+                }
+                y += m.h;
+            }
+
+            if (!filas || !filas.length) return;
+            // Cabecera nunca queda sola al final de una página: reservamos al menos
+            // una fila de datos si existe.
+            const hCab = medir(encabezados, true).h;
+            const hPrimera = medir(filas[0], false).h;
+            if (y + hCab + hPrimera > CONTENT_BOTTOM) nuevaPagina();
+            dibujarFila(encabezados, true);
+            filas.forEach(f => dibujarFila(f, false));
+            y += 3;
         }
 
-        function imagen(dataUrl, x, yy, maxW, maxH) {
+        function imagen(dataUrl, x, maxW, maxH) {
+            if (!dataUrl) return false;
             try {
                 const props = doc.getImageProperties(dataUrl);
                 const ratio = props.width / props.height;
-                let w = maxW;
-                let h = w / ratio;
-                if (h > maxH) { h = maxH; w = h * ratio; }
-                asegurar(h + 6);
-                const yImagen = y;
-                doc.addImage(dataUrl, "JPEG", x, yImagen, w, h, undefined, "FAST");
-                y = yImagen + h + 4;
-                return { ok: true, width: w, height: h, y: yImagen };
-            } catch (e) {
-                try {
-                    const props = doc.getImageProperties(dataUrl);
-                    const ratio = props.width / props.height;
-                    let w = maxW;
-                    let h = w / ratio;
-                    if (h > maxH) { h = maxH; w = h * ratio; }
-                    asegurar(h + 6);
-                    const yImagen = y;
-                    doc.addImage(dataUrl, undefined, x, yImagen, w, h, undefined, "FAST");
-                    y = yImagen + h + 4;
-                    return { ok: true, width: w, height: h, y: yImagen };
-                } catch (e2) { return { ok: false }; }
-            }
+                let w=maxW, h=w/ratio;
+                if (h>maxH) { h=maxH; w=h*ratio; }
+                // Si no cabe, saltamos antes de escribir.
+                asegurar(h+5);
+                const yy=y;
+                doc.addImage(dataUrl, undefined, x, yy, w, h, undefined, "FAST");
+                y=yy+h+4;
+                return true;
+            } catch(e) { return false; }
         }
-
         function moduloEstaNoAplica(clave) {
             const m = auditoria.modulos && auditoria.modulos[clave];
             return !!(m && m.estado === "NO_APLICA");
         }
-
         function mostrarModuloNoAplica(nombre) {
-            parrafo(nombre + ": NO APLICA. No se muestran los elementos ni controles de este módulo porque el módulo completo fue declarado no aplicable.");
+            asegurar(12);
+            doc.setFillColor(238,238,238);
+            doc.rect(M, y-4.5, CONTENT_W, 8, "F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(9);
+            doc.text(normalizarTextoPdf(nombre + ": NO APLICA"), M+2, y);
+            y += 10;
         }
 
         encabezado();
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(16);
-        doc.text("RESUMEN DE AUDITORÍA", margen, y);
-        y += 8;
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(9);
-        doc.text("Estado: " + normalizarTextoPdf(auditoria.estado || "BORRADOR"), margen, y);
-        y += 7;
+        doc.setFont("helvetica","bold"); doc.setFontSize(16);
+        doc.text("RESUMEN DE AUDITORÍA", M, y); y+=8;
+        doc.setFont("helvetica","normal"); doc.setFontSize(9);
+        doc.text("Estado: " + normalizarTextoPdf(auditoria.estado || "BORRADOR"), M, y); y+=7;
 
         const datos = auditoria.datosGenerales || {};
         titulo("1. Datos generales");
@@ -2739,7 +2751,7 @@ function crearPdfAuditoriaLocal() {
 
         titulo("2. Estado de módulos");
         const mods = obtenerDefinicionModulosResumen();
-        tabla(mods.map(m => [m.nombre, textoEstadoResumen(m.estado)]), [125, 47], ["Módulo", "Estado"]);
+        tabla(mods.map(m => [m.nombre, textoEstadoResumen(m.estado)]), [130,42], ["Módulo","Estado"]);
 
         const basico = obtenerResumenBasicoPdf();
         titulo("3. Vehículo");
@@ -2747,9 +2759,8 @@ function crearPdfAuditoriaLocal() {
         else {
             linea("Estado", textoEstadoResumen(basico.vehiculo.estado));
             linea("Matrícula", basico.vehiculo.matricula);
-            linea("Marca / modelo", [basico.vehiculo.marca, basico.vehiculo.modelo].filter(Boolean).join(" "));
-            linea("Tipo", basico.vehiculo.tipo);
-            linea("ITV", basico.vehiculo.itv);
+            linea("Marca / modelo", [basico.vehiculo.marca,basico.vehiculo.modelo].filter(Boolean).join(" "));
+            linea("Tipo", basico.vehiculo.tipo); linea("ITV", basico.vehiculo.itv);
             linea("Seguro", basico.vehiculo.seguro);
         }
 
@@ -2758,62 +2769,57 @@ function crearPdfAuditoriaLocal() {
         else {
             linea("Estado", textoEstadoResumen(basico.extintor.estado));
             linea("Dispone", basico.extintor.dispone);
-            linea("Tipo / agente", [basico.extintor.tipo, basico.extintor.agente].filter(Boolean).join(" / "));
+            linea("Tipo / agente", [basico.extintor.tipo,basico.extintor.agente].filter(Boolean).join(" / "));
             linea("Capacidad", basico.extintor.capacidad);
             linea("Ubicación", basico.extintor.ubicacion);
             linea("Identificación", basico.extintor.identificacion);
         }
 
         const epis = obtenerResumenEpis();
-        titulo("5. EPIs y revisiones específicas");
+        titulo("5. EPIs");
         if (moduloEstaNoAplica("epis")) mostrarModuloNoAplica("EPIs");
         else if (epis.length) {
-            tabla(epis.map(e => [e.nombre, textoEstadoElemento(e.estadoElemento), e.marca, e.modelo, e.identificacion, e.estadoElemento === "ACTIVO" ? String(e.controles) : "—", e.estadoElemento === "ACTIVO" ? (e.resultado || "Pendiente") : "—"]), [30,26,22,22,27,15,40], ["EPI","Estado","Marca","Modelo","Identificación","Controles","Veredicto"]);
+            tabla(epis.map(e => [
+                e.nombre, textoEstadoElemento(e.estadoElemento), e.marca, e.modelo, e.identificacion,
+                e.estadoElemento === "ACTIVO" ? (e.resultado || "PENDIENTE") : "—"
+            ]), [34,27,22,22,32,45], ["EPI","Estado","Marca","Modelo","Identificación","Veredicto"]);
         } else parrafo("No hay elementos de EPIs registrados.");
 
         const radio = obtenerResumenRadio();
         titulo("6. RADIO - EPIs específicos");
         if (moduloEstaNoAplica("radio")) mostrarModuloNoAplica("RADIO");
         else if ((datos.actividad || "") === "RADIO" && radio.length) {
-            tabla(radio.map(e => [e.nombre, textoEstadoElemento(e.estadoElemento), e.marca, e.modelo, e.identificacion, e.estadoElemento === "ACTIVO" ? (e.resultado || "Pendiente") : "—"]), [32,26,22,25,38,39], ["Equipo","Estado","Marca","Modelo","Identificación","Veredicto"]);
+            tabla(radio.map(e => [
+                e.nombre, textoEstadoElemento(e.estadoElemento), e.marca, e.modelo, e.identificacion,
+                e.estadoElemento === "ACTIVO" ? (e.resultado || "PENDIENTE") : "—"
+            ]), [35,27,22,25,35,38], ["Equipo","Estado","Marca","Modelo","Identificación","Veredicto"]);
         } else parrafo((datos.actividad || "") === "RADIO" ? "No hay elementos específicos de RADIO registrados." : "RADIO: NO APLICA por actividad.");
 
         const escaleras = obtenerResumenEscaleras();
         titulo("7. Escaleras");
         if (moduloEstaNoAplica("escaleras")) mostrarModuloNoAplica("Escaleras");
         else if (escaleras.length) {
-            tabla(escaleras.map(e => [e.nombre, e.tipo, e.fabricante, e.modelo, e.identificacion, textoEstadoResumen(e.estado)]), [27, 23, 32, 29, 31, 28], ["Escalera", "Tipo", "Fabricante", "Modelo", "Identificación", "Estado"]);
-
-            // Fotografías de identificación asociadas a cada escalera, máximo 4 por unidad.
-            auditoria.modulos.escaleras.unidades.forEach((unidad, idx) => {
+            tabla(escaleras.map(e=>[e.nombre,e.tipo,e.fabricante,e.modelo,e.identificacion,textoEstadoResumen(e.estado)]),
+                [28,23,31,29,32,39],["Escalera","Tipo","Fabricante","Modelo","Identificación","Estado"]);
+            const unidadesEsc = auditoria.modulos.escaleras.unidades || [];
+            unidadesEsc.forEach((unidad,idx)=>{
                 inicializarFotografiasIdentificacionEscalera(unidad);
-                const fotosEscalera = [
-                    ["pegatinaRevision1", "Fotografía pegatina revisión 1"],
-                    ["pegatinaRevision2", "Fotografía pegatina revisión 2"],
-                    ["placaIdentificativa1", "Fotografía placa identificativa 1"],
-                    ["placaIdentificativa2", "Fotografía placa identificativa 2"]
-                ].filter(([clave]) => unidad.fotografiasIdentificacion[clave] && unidad.fotografiasIdentificacion[clave].dataUrl);
-                if (!fotosEscalera.length) return;
-                asegurar(28);
-                doc.setFont("helvetica", "bold");
-                doc.setFontSize(9);
-                doc.text("Fotografías de identificación — Escalera " + (idx + 1), margen, y);
-                y += 6;
-                fotosEscalera.forEach(([clave, etiqueta]) => {
-                    const foto = unidad.fotografiasIdentificacion[clave];
-                    asegurar(62);
-                    doc.setFont("helvetica", "bold");
-                    doc.setFontSize(8);
-                    doc.text(etiqueta, margen, y);
-                    y += 4;
-                    const yFoto = y;
-                    const imgInfo = imagen(foto.dataUrl, margen, yFoto, 80, 52);
-                    if (foto.descripcion) {
-                        doc.setFont("helvetica", "normal");
-                        doc.setFontSize(7);
-                        doc.text(normalizarTextoPdf(foto.descripcion), 105, yFoto + 5, { maxWidth: 85 });
-                    }
-                    y = Math.max(y, yFoto + 56);
+                const fotos=[
+                    ["pegatinaRevision1","Fotografía pegatina revisión 1"],
+                    ["pegatinaRevision2","Fotografía pegatina revisión 2"],
+                    ["placaIdentificativa1","Fotografía placa identificativa 1"],
+                    ["placaIdentificativa2","Fotografía placa identificativa 2"]
+                ].filter(([k])=>unidad.fotografiasIdentificacion[k] && unidad.fotografiasIdentificacion[k].dataUrl);
+                if (!fotos.length) return;
+                asegurar(10);
+                doc.setFont("helvetica","bold"); doc.setFontSize(9);
+                doc.text("Fotografías de identificación — Escalera " + (idx+1), M, y); y+=6;
+                fotos.forEach(([k,et])=>{
+                    const f=unidad.fotografiasIdentificacion[k];
+                    asegurar(9);
+                    doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text(et,M,y); y+=4;
+                    imagen(f.dataUrl,M,78,50);
+                    if (f.descripcion) parrafo(f.descripcion);
                 });
             });
         } else parrafo("No hay escaleras registradas.");
@@ -2821,70 +2827,57 @@ function crearPdfAuditoriaLocal() {
         const botiquin = obtenerResumenBotiquinPdf();
         titulo("8. Botiquín");
         if (moduloEstaNoAplica("botiquin")) mostrarModuloNoAplica("Botiquín");
-        else if (botiquin.length) tabla(botiquin.map(e => [e.nombre, e.resultado, e.detalle]), [75, 35, 60], ["Comprobación", "Resultado", "Detalle"]);
+        else if (botiquin.length) tabla(botiquin.map(e=>[e.nombre,e.resultado,e.detalle]),[75,35,60],["Comprobación","Resultado","Detalle"]);
         else parrafo("No hay datos de botiquín registrados.");
 
         const incidencias = obtenerResumenIncidencias();
         titulo("9. Incidencias");
         if (incidencias.length) {
-            tabla(incidencias.map(i => [i.id || "", i.control || i.subcontrol || i.modulo || "", i.descripcion || "", i.medida || "", i.observaciones || "", (Array.isArray(i.fotografias) ? i.fotografias.length : (i.fotografia ? 1 : 0)).toString()]), [18, 32, 45, 45, 32, 12], ["ID", "Elemento", "Descripción", "Medida correctora", "Observaciones", "Fotos"]);
+            tabla(incidencias.map(i=>[
+                i.id||"", i.control||i.subcontrol||i.modulo||"", i.descripcion||"", i.medida||"",
+                i.observaciones||"", String(Array.isArray(i.fotografias)?i.fotografias.length:(i.fotografia?1:0))
+            ]),[17,31,46,44,33,11],["ID","Elemento","Descripción","Medida correctora","Observaciones","Fotos"]);
         } else parrafo("No hay incidencias registradas.");
 
         const fotos = recopilarFotografiasAuditoriaPdf();
         titulo("10. Fotografías");
         if (fotos.length) {
-            fotos.forEach((f, i) => {
-                // Reservar el bloque completo para que no quede el título de una fotografía
-                // al final de una página y la imagen en la siguiente.
-                asegurar(72);
-                doc.setFont("helvetica", "bold");
-                doc.setFontSize(8);
-                doc.text("Fotografía " + (i + 1) + " - " + (f.contexto || f.nombre), margen, y);
-                y += 4;
-                if (f.descripcion) { parrafo(f.descripcion); }
-                imagen(f.dataUrl, margen, y, 80, 58);
+            fotos.forEach((f,i)=>{
+                const caption = "Fotografía " + (i+1) + " - " + (f.contexto || f.nombre || "");
+                asegurar(10+4);
+                doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.text(normalizarTextoPdf(caption),M,y); y+=4;
+                if (f.descripcion) parrafo(f.descripcion);
+                imagen(f.dataUrl,M,82,55);
             });
         } else parrafo("No hay fotografías registradas.");
 
         titulo("11. Firmas digitales");
+        const firmaH = 38, firmaGap=6, firmaW=(CONTENT_W-firmaGap)/2;
         asegurar(62);
-        const xFirmaIzq = margen;
-        const xFirmaDer = margen + anchoTexto / 2 + 5;
-        const anchoFirma = (anchoTexto - 5) / 2;
-        const yFirmaTitulo = y;
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(8);
-        doc.text("Firma del auditor", xFirmaIzq, yFirmaTitulo);
-        doc.text("Firma del trabajador/auditado", xFirmaDer, yFirmaTitulo);
-        const yFirma = yFirmaTitulo + 4;
-        const altoFirma = 38;
-        const dibujarFirma = (dataUrl, x, yy, wMax, hMax, textoVacio) => {
-            try {
-                if (!dataUrl) throw new Error("sin firma");
-                const props = doc.getImageProperties(dataUrl);
-                const ratio = props.width / props.height;
-                let w = wMax, h = w / ratio;
-                if (h > hMax) { h = hMax; w = h * ratio; }
-                doc.addImage(dataUrl, undefined, x, yy, w, h, undefined, "FAST");
-            } catch (e) {
-                doc.setFont("helvetica", "normal");
-                doc.setFontSize(7.5);
-                doc.text(textoVacio, x, yy + 6);
+        const x1=M, x2=M+firmaW+firmaGap, yFirma=y+2;
+        doc.setFont("helvetica","bold"); doc.setFontSize(8);
+        doc.text("Firma del auditor",x1,yFirma);
+        doc.text("Firma del trabajador/auditado",x2,yFirma);
+        const dibujarFirma=(dataUrl,x,yy,wMax,hMax,texto)=>{
+            try{
+                if(!dataUrl)throw new Error("sin firma");
+                const p=doc.getImageProperties(dataUrl); const ratio=p.width/p.height;
+                let w=wMax,h=w/ratio; if(h>hMax){h=hMax;w=h*ratio;}
+                doc.addImage(dataUrl,undefined,x,yy+4,w,h,undefined,"FAST");
+            }catch(e){
+                doc.setFont("helvetica","normal");doc.setFontSize(7.5);doc.text(texto,x,yy+12);
             }
         };
-        // Ambas firmas parten exactamente de la misma coordenada Y.
-        dibujarFirma(auditoria.firmas && auditoria.firmas.auditor, xFirmaIzq, yFirma, anchoFirma, altoFirma, "Firma del auditor no disponible.");
-        dibujarFirma(auditoria.firmas && auditoria.firmas.trabajador, xFirmaDer, yFirma, anchoFirma, altoFirma, "Firma del trabajador no disponible.");
-        // Líneas de firma alineadas.
+        dibujarFirma(auditoria.firmas&&auditoria.firmas.auditor,x1,yFirma,firmaW,firmaH,"Firma no disponible.");
+        dibujarFirma(auditoria.firmas&&auditoria.firmas.trabajador,x2,yFirma,firmaW,firmaH,"Firma no disponible.");
         doc.setDrawColor(150);
-        doc.line(xFirmaIzq, yFirma + altoFirma + 2, xFirmaIzq + anchoFirma, yFirma + altoFirma + 2);
-        doc.line(xFirmaDer, yFirma + altoFirma + 2, xFirmaDer + anchoFirma, yFirma + altoFirma + 2);
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(7.5);
-        doc.text(normalizarTextoPdf(datos.auditor || "Auditor"), xFirmaIzq, yFirma + altoFirma + 7);
-        doc.text(normalizarTextoPdf(datos.trabajador || "Trabajador/auditado"), xFirmaDer, yFirma + altoFirma + 7);
-        y = yFirma + altoFirma + 13;
-        linea("Fecha de finalización", [auditoria.fechaFinalizacion, auditoria.horaFinalizacion].filter(Boolean).join(" "));
+        doc.line(x1,yFirma+firmaH+5,x1+firmaW,yFirma+firmaH+5);
+        doc.line(x2,yFirma+firmaH+5,x2+firmaW,yFirma+firmaH+5);
+        doc.setFont("helvetica","normal");doc.setFontSize(7.5);
+        doc.text(normalizarTextoPdf(datos.auditor||"Auditor"),x1,yFirma+firmaH+10);
+        doc.text(normalizarTextoPdf(datos.trabajador||"Trabajador/auditado"),x2,yFirma+firmaH+10);
+        y=yFirma+firmaH+16;
+        linea("Fecha de finalización",[auditoria.fechaFinalizacion,auditoria.horaFinalizacion].filter(Boolean).join(" "));
 
         pie();
         return doc;
@@ -8221,6 +8214,7 @@ function renderizarControlRadio(id, claveSub, definicion, sub) {
 function renderizarUnidadRadio(unidad) {
     const definicion = obtenerEstructuraRadio()[unidad.tipo];
     unidad.estadoElemento = normalizarEstadoElemento(unidad.estadoElemento);
+    if (unidad.estadoElemento === "ACTIVO") sincronizarVeredictoEpi(claveEpi, unidad, true);
     const nombreElemento = (definicion.nombre || unidad.tipo) + (definicion.multiple ? " #" + unidad.numero : "");
     let html = `<div class="card epi-card radio-epi-card"><h3>${escapeHtml(nombreElemento)}</h3>`;
     html += renderizarSelectorEstadoElemento(unidad.estadoElemento, `cambiarEstadoElementoRadio('${unidad.id}', `, nombreElemento);
@@ -9368,8 +9362,85 @@ function actualizarCampoRevisionFabricanteGeneral(claveEpi, campo, valor) {
     auditoria.modulos.epis.estado = "EN_CURSO";
 }
 
+function obtenerEstadoAutomaticoEpi(claveEpi, unidad) {
+    const def = obtenerEstructuraEpis()[claveEpi];
+    if (!def || !unidad) return "";
+    const estado = normalizarEstadoElemento(unidad.estadoElemento);
+    if (estado !== "ACTIVO") return "";
+
+    const subs = Object.values(unidad.subcontroles || {});
+    const hayIncorrectoGeneral = subs.some(s => s && s.resultado === "INCORRECTO");
+    if (hayIncorrectoGeneral) return "";
+
+    const config = obtenerConfiguracionRevisionFabricante(unidad.campos && unidad.campos.marca, claveEpi);
+    if (config) {
+        const rev = unidad.revisionFabricante;
+        if (!rev || !rev.controles) return "";
+        const positivo = obtenerResultadoPositivoFabricante(config);
+        const opciones = config.opcionesControl || [];
+        const controles = config.controles || [];
+        for (const item of controles) {
+            const c = rev.controles[item[0]];
+            if (!c || !c.resultado) return "";
+            if (c.resultado !== positivo) return "";
+            if (opciones.length && !opciones.includes(c.resultado)) return "";
+        }
+    }
+    return "APTO";
+}
+
+function idIncidenciaVeredictoNoAptoEpi(claveEpi, unidad) {
+    return "EPIS_VEREDICTO_NO_APTO_" + claveEpi + (unidad && unidad.id ? "_" + unidad.id : "");
+}
+
+function sincronizarVeredictoEpi(claveEpi, unidad, permitirAutoApto=true) {
+    if (!unidad) return;
+    if (!unidad.revisionFabricante || typeof unidad.revisionFabricante !== "object") inicializarRevisionFabricante(unidad);
+    const auto = obtenerEstadoAutomaticoEpi(claveEpi, unidad);
+    const incidenciaId = idIncidenciaVeredictoNoAptoEpi(claveEpi, unidad);
+    const existente = auditoria.incidencias.find(i => i.id === incidenciaId);
+
+    if (permitirAutoApto && auto === "APTO" && (!unidad.revisionFabricante.resultado || unidad.revisionFabricante.resultado === "APTO")) {
+        unidad.revisionFabricante.resultado = "APTO";
+        auditoria.incidencias = auditoria.incidencias.filter(i => i.id !== incidenciaId);
+        return;
+    }
+    if (auto !== "APTO" && unidad.revisionFabricante.resultado === "APTO") {
+        unidad.revisionFabricante.resultado = "";
+    }
+    if (unidad.revisionFabricante.resultado === "NO_APTO") {
+        const def = obtenerEstructuraEpis()[claveEpi];
+        const nombre = def ? def.nombre + (def.multiple ? " #" + (unidad.numero || "") : "") : claveEpi;
+        const incidencia = existente || {
+            id: incidenciaId,
+            origen: "EPIS_VEREDICTO",
+            modulo: "EPIs",
+            controlClave: claveEpi,
+            unidadId: unidad.id || null,
+            control: nombre,
+            resultado: "NO_APTO",
+            descripcion: "El EPI ha sido calificado manualmente como NO APTO.",
+            medida: "Retirar el EPI del servicio y sustituirlo o subsanar la deficiencia antes de realizar los trabajos.",
+            observaciones: "Inconformidad generada automáticamente por el veredicto NO APTO.",
+            fotografias: [],
+            estado: "ABIERTA"
+        };
+        incidencia.resultado = "NO_APTO";
+        incidencia.estado = "ABIERTA";
+        if (!existente) auditoria.incidencias.push(incidencia);
+    } else if (unidad.revisionFabricante.resultado === "APTO" && auto === "APTO") {
+        auditoria.incidencias = auditoria.incidencias.filter(i => i.id !== incidenciaId);
+    }
+}
+
 function actualizarVeredictoRevisionFabricanteGeneral(claveEpi, valor) {
     actualizarCampoRevisionFabricanteGeneral(claveEpi, "resultado", valor);
+    const control = auditoria.modulos.epis.controles[claveEpi];
+    if (control) {
+        sincronizarVeredictoEpi(claveEpi, control, false);
+        renderizarModuloEpis();
+        actualizarDashboard();
+    }
 }
 
 function actualizarRevisionFabricanteRadio(idUnidad, claveSub, resultado) {
@@ -9425,6 +9496,13 @@ function actualizarCampoRevisionFabricanteMultiple(claveEpi, idUnidad, campo, va
 
 function actualizarVeredictoRevisionFabricanteMultiple(claveEpi, idUnidad, valor) {
     actualizarCampoRevisionFabricanteMultiple(claveEpi, idUnidad, "resultado", valor);
+    const control = auditoria.modulos.epis.controles[claveEpi];
+    const unidad = control && control.unidades ? control.unidades[idUnidad] : null;
+    if (unidad) {
+        sincronizarVeredictoEpi(claveEpi, unidad, false);
+        renderizarModuloEpis();
+        actualizarDashboard();
+    }
 }
 
 function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverride) {
@@ -9452,6 +9530,7 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
     elemento.revisionFabricante.plantillaClave = config.plantillaClave || "";
     const revision = elemento.revisionFabricante;
     asegurarResultadosPositivosFabricante(revision, config);
+    if (!configOverride) sincronizarVeredictoEpi(claveEpi, elemento, true);
     const esRevisionRadio = !!configOverride;
     const esMiguelMiranda = fabricanteActual === "MIGUEL_MIRANDA";
     const fabricanteConfigurado = config.fabricanteConfigurado || fabricanteActual;
@@ -10267,6 +10346,7 @@ function cambiarResultadoSubcontrolEpi(claveEpi, claveSub, resultado) {
     }
 
     sincronizarResultadoEpi(claveEpi);
+    sincronizarVeredictoEpi(claveEpi, controlEpi, true);
     renderizarModuloEpis();
     actualizarDashboard();
 }
