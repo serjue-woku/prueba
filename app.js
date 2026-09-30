@@ -2190,19 +2190,31 @@ function obtenerResumenEpis() {
         if (!control) return;
         const unidades = def.multiple ? Object.values(control.unidades || {}) : [control];
         unidades.forEach((unidad, indice) => {
+            const estadoElemento = normalizarEstadoElemento(unidad.estadoElemento);
             const marca = unidad.campos && unidad.campos.marca || "";
             const modelo = unidad.campos && unidad.campos.modelo || "";
             const identificacion = unidad.campos && (unidad.campos.numeroEpi || unidad.campos.identificacion || unidad.campos.numeroSerie || unidad.campos.descripcionElemento) || "";
             const config = obtenerConfiguracionRevisionFabricante(marca, claveEpi);
+            inicializarRevisionFabricante(unidad, config);
+            // Recalcular siempre el veredicto antes de construir el resumen/PDF.
+            // Esto evita que el informe dependa de si el auditor ha vuelto a
+            // abrir el elemento después de marcar los controles.
+            if (estadoElemento === "ACTIVO") sincronizarVeredictoEpi(claveEpi, unidad, true);
             const revision = unidad.revisionFabricante;
-            const controles = revision && revision.controles ? Object.values(revision.controles) : [];
+            const controlesGenerales = Object.values(unidad.subcontroles || {});
+            const controlesFabricante = revision && revision.controles ? Object.values(revision.controles) : [];
+            const controles = controlesGenerales.concat(controlesFabricante);
             const incorrectos = controles.filter(c => c && c.resultado && ["INCORRECTO", "NO_OK", "M", "R", "MALO", "NO_APTO"].includes(c.resultado)).length;
+            let resultadoEpi = "";
+            if (estadoElemento === "NO_APLICA") resultadoEpi = "NO APLICA";
+            else if (estadoElemento === "NO_DISPONIBLE") resultadoEpi = "NO DISPONIBLE";
+            else resultadoEpi = revision && revision.resultado ? revision.resultado : obtenerEstadoAutomaticoEpi(claveEpi, unidad);
             resultado.push({
                 nombre: def.nombre + (def.multiple ? " #" + (unidad.numero || indice + 1) : ""),
-                estadoElemento: normalizarEstadoElemento(unidad.estadoElemento),
+                estadoElemento,
                 marca, modelo, identificacion,
                 fabricante: revision && revision.fabricante ? revision.fabricante : "",
-                resultado: revision && revision.resultado ? revision.resultado : "",
+                resultado: resultadoEpi,
                 controles: controles.length,
                 incorrectos,
                 tienePlantilla: !!config
@@ -9366,12 +9378,21 @@ function obtenerEstadoAutomaticoEpi(claveEpi, unidad) {
     const def = obtenerEstructuraEpis()[claveEpi];
     if (!def || !unidad) return "";
     const estado = normalizarEstadoElemento(unidad.estadoElemento);
+    if (estado === "NO_APLICA") return "NO_APLICA";
+    if (estado === "NO_DISPONIBLE") return "NO_DISPONIBLE";
     if (estado !== "ACTIVO") return "";
 
+    // Primero deben estar resueltas TODAS las comprobaciones generales del EPI.
     const subs = Object.values(unidad.subcontroles || {});
-    const hayIncorrectoGeneral = subs.some(s => s && s.resultado === "INCORRECTO");
-    if (hayIncorrectoGeneral) return "";
+    if (subs.length) {
+        for (const sub of subs) {
+            if (!sub || !sub.resultado) return "";
+            if (!["CORRECTO", "NO_PROCEDE"].includes(sub.resultado)) return "";
+        }
+    }
 
+    // Si existe una plantilla específica de fabricante, también deben estar
+    // resueltos todos sus controles con el resultado positivo de esa plantilla.
     const config = obtenerConfiguracionRevisionFabricante(unidad.campos && unidad.campos.marca, claveEpi);
     if (config) {
         const rev = unidad.revisionFabricante;
@@ -9379,6 +9400,7 @@ function obtenerEstadoAutomaticoEpi(claveEpi, unidad) {
         const positivo = obtenerResultadoPositivoFabricante(config);
         const opciones = config.opcionesControl || [];
         const controles = config.controles || [];
+        if (!controles.length) return "";
         for (const item of controles) {
             const c = rev.controles[item[0]];
             if (!c || !c.resultado) return "";
@@ -9960,6 +9982,29 @@ function sincronizarResultadoEpi(claveEpi) {
 }
 
 
+function renderizarVeredictoEpiSinPlantilla(elemento, claveEpi, idUnidad) {
+    if (!elemento) return "";
+    const estado = normalizarEstadoElemento(elemento.estadoElemento);
+    if (estado !== "ACTIVO") return "";
+    sincronizarVeredictoEpi(claveEpi, elemento, true);
+    const idBase = String(claveEpi || "epi").replace(/[^A-Za-z0-9_-]/g, "_") + "_" + String(idUnidad || "single").replace(/[^A-Za-z0-9_-]/g, "_");
+    const evento = idUnidad
+        ? `actualizarVeredictoRevisionFabricanteMultiple(${JSON.stringify(String(claveEpi))},${JSON.stringify(String(idUnidad))},this.value)`
+        : `actualizarVeredictoRevisionFabricanteGeneral(${JSON.stringify(String(claveEpi))},this.value)`;
+    const resultado = elemento.revisionFabricante && elemento.revisionFabricante.resultado || "";
+    return `<div class="card manufacturer-review"><h4>Veredicto del EPI</h4>
+        <p class="vehicle-help">Se marca automáticamente <strong>APTO</strong> cuando todas las comprobaciones aplicables son correctas. El auditor puede cambiarlo a <strong>NO APTO</strong> si considera que el equipo no debe aceptarse.</p>
+        <div class="form-grid manufacturer-review-meta">
+            <div class="field"><label><strong>VEREDICTO DEL EPI</strong></label>
+                <select id="veredicto_mfr_${idBase}" onchange="${evento}">
+                    <option value="">Pendiente</option>
+                    <option value="APTO" ${resultado === "APTO" ? "selected" : ""}>APTO</option>
+                    <option value="NO_APTO" ${resultado === "NO_APTO" ? "selected" : ""}>NO APTO</option>
+                </select>
+            </div>
+        </div></div>`;
+}
+
 function renderizarModuloEpis() {
 
     inicializarEpis();
@@ -10050,7 +10095,8 @@ function renderizarModuloEpis() {
             Object.keys(subcontroles).forEach(claveSub => {
                 html += renderizarControlEpi(claveEpi, claveSub, subcontroles[claveSub], controlEpi.subcontroles[claveSub]);
             });
-            html += renderizarRevisionFabricante(controlEpi, claveEpi);
+            if (configFabricante) html += renderizarRevisionFabricante(controlEpi, claveEpi);
+            else html += renderizarVeredictoEpiSinPlantilla(controlEpi, claveEpi);
         } else {
             html += `<div class="vehicle-help" style="margin-top:8px;"><strong>${textoEstadoElemento(controlEpi.estadoElemento)}</strong>${controlEpi.estadoElemento === "NO_DISPONIBLE" ? " — se ha generado automáticamente una inconformidad." : " — no se realizan los controles de este elemento."}</div>`;
         }
@@ -10110,7 +10156,9 @@ function renderizarUnidadEpiMultiple(claveEpi, unidad) {
         Object.keys(definicion.controles).forEach(claveSub => {
             html += renderizarControlEpiMultiple(claveEpi, unidad.id, claveSub, definicion.controles[claveSub], unidad.subcontroles[claveSub]);
         });
-        html += renderizarRevisionFabricante(unidad, claveEpi, unidad.id);
+        const configUnidad = obtenerConfiguracionRevisionFabricante(unidad.campos ? unidad.campos.marca : "", claveEpi);
+        if (configUnidad) html += renderizarRevisionFabricante(unidad, claveEpi, unidad.id);
+        else html += renderizarVeredictoEpiSinPlantilla(unidad, claveEpi, unidad.id);
     } else {
         html += `<div class="vehicle-help" style="margin-top:8px;"><strong>${textoEstadoElemento(unidad.estadoElemento)}</strong>${unidad.estadoElemento === "NO_DISPONIBLE" ? " — se ha generado automáticamente una inconformidad." : " — no se realizan los controles de este elemento."}</div>`;
     }
@@ -10544,8 +10592,9 @@ function guardarEpis() {
                     if (selectVeredicto && selectVeredicto.value) {
                         unidad.revisionFabricante.resultado = selectVeredicto.value;
                     }
+                    sincronizarVeredictoEpi(claveEpi, unidad, true);
                     if (!unidad.revisionFabricante.resultado) {
-                        alert("Debe indicar el veredicto de la revisión del fabricante de " + definicion.nombre + " #" + unidad.numero + ".");
+                        alert("Debe indicar el veredicto del EPI " + definicion.nombre + " #" + unidad.numero + ".");
                         return;
                     }
                 }
@@ -10585,8 +10634,9 @@ function guardarEpis() {
             if (selectVeredicto && selectVeredicto.value) {
                 controlEpi.revisionFabricante.resultado = selectVeredicto.value;
             }
+            sincronizarVeredictoEpi(claveEpi, controlEpi, true);
             if (!controlEpi.revisionFabricante.resultado) {
-                alert("Debe indicar el veredicto de la revisión del fabricante de " + definicion.nombre + ".");
+                alert("Debe indicar el veredicto del EPI " + definicion.nombre + ".");
                 return;
             }
         }
