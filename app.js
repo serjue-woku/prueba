@@ -2593,6 +2593,9 @@ function crearPdfAuditoriaLocal() {
         const ancho = 210;
         const alto = 297;
         const anchoTexto = ancho - margen * 2;
+        // Zona segura de contenido: deja espacio suficiente para el pie de página y evita que
+        // las últimas líneas de un apartado queden montadas/cortadas.
+        const limiteContenido = alto - 24;
         let y = 18;
         let pagina = 1;
 
@@ -2631,7 +2634,7 @@ function crearPdfAuditoriaLocal() {
         }
 
         function asegurar(altura) {
-            if (y + altura > alto - 17) nuevaPagina();
+            if (y + altura > limiteContenido) nuevaPagina();
         }
 
         function titulo(texto) {
@@ -2667,8 +2670,8 @@ function crearPdfAuditoriaLocal() {
             const altoFila = 6; const xs=[margen]; anchos.forEach(w=>xs.push(xs[xs.length-1]+w));
             const calc=celdas=>{const lineas=celdas.map((c,i)=>doc.splitTextToSize(normalizarTextoPdf(c),anchos[i]-2));const n=Math.max(1,...lineas.map(a=>a.length));return {lineas,h:Math.max(altoFila,n*3.7+2.3)};};
             const cab=calc(encabezados), datos=filas.map(calc), total=cab.h+datos.reduce((a,r)=>a+r.h,0)+3;
-            if(total <= (alto-17-18) && y+total > alto-17) nuevaPagina();
-            function dibujar(celdas,cabecera,info){const d=info||calc(celdas);if(y+d.h>alto-17){nuevaPagina();if(!cabecera)dibujar(encabezados,true,cab);}if(cabecera){doc.setFillColor(225,225,225);doc.rect(margen,y-4.2,anchoTexto,d.h,"F");}doc.setDrawColor(190);doc.rect(margen,y-4.2,anchoTexto,d.h);for(let i=0;i<celdas.length;i++){if(i>0)doc.line(xs[i],y-4.2,xs[i],y-4.2+d.h);doc.setFont("helvetica",cabecera?"bold":"normal");doc.setFontSize(cabecera?7.2:6.9);doc.text(d.lineas[i],xs[i]+1,y);}y+=d.h;}
+            if(total <= (limiteContenido-18) && y+total > limiteContenido) nuevaPagina();
+            function dibujar(celdas,cabecera,info){const d=info||calc(celdas);if(y+d.h>limiteContenido){nuevaPagina();if(!cabecera)dibujar(encabezados,true,cab);}if(cabecera){doc.setFillColor(225,225,225);doc.rect(margen,y-4.2,anchoTexto,d.h,"F");}doc.setDrawColor(190);doc.rect(margen,y-4.2,anchoTexto,d.h);for(let i=0;i<celdas.length;i++){if(i>0)doc.line(xs[i],y-4.2,xs[i],y-4.2+d.h);doc.setFont("helvetica",cabecera?"bold":"normal");doc.setFontSize(cabecera?7.2:6.9);doc.text(d.lineas[i],xs[i]+1,y);}y+=d.h;}
             dibujar(encabezados,true,cab);filas.forEach((f,i)=>dibujar(f,false,datos[i]));y+=3;
         }
 
@@ -2679,10 +2682,11 @@ function crearPdfAuditoriaLocal() {
                 let w = maxW;
                 let h = w / ratio;
                 if (h > maxH) { h = maxH; w = h * ratio; }
-                asegurar(h + 8);
-                doc.addImage(dataUrl, "JPEG", x, y, w, h, undefined, "FAST");
-                y += h + 4;
-                return true;
+                asegurar(h + 6);
+                const yImagen = y;
+                doc.addImage(dataUrl, "JPEG", x, yImagen, w, h, undefined, "FAST");
+                y = yImagen + h + 4;
+                return { ok: true, width: w, height: h, y: yImagen };
             } catch (e) {
                 try {
                     const props = doc.getImageProperties(dataUrl);
@@ -2690,12 +2694,22 @@ function crearPdfAuditoriaLocal() {
                     let w = maxW;
                     let h = w / ratio;
                     if (h > maxH) { h = maxH; w = h * ratio; }
-                    asegurar(h + 8);
-                    doc.addImage(dataUrl, undefined, x, y, w, h, undefined, "FAST");
-                    y += h + 4;
-                    return true;
-                } catch (e2) { return false; }
+                    asegurar(h + 6);
+                    const yImagen = y;
+                    doc.addImage(dataUrl, undefined, x, yImagen, w, h, undefined, "FAST");
+                    y = yImagen + h + 4;
+                    return { ok: true, width: w, height: h, y: yImagen };
+                } catch (e2) { return { ok: false }; }
             }
+        }
+
+        function moduloEstaNoAplica(clave) {
+            const m = auditoria.modulos && auditoria.modulos[clave];
+            return !!(m && m.estado === "NO_APLICA");
+        }
+
+        function mostrarModuloNoAplica(nombre) {
+            parrafo(nombre + ": NO APLICA. No se muestran los elementos ni controles de este módulo porque el módulo completo fue declarado no aplicable.");
         }
 
         encabezado();
@@ -2729,36 +2743,45 @@ function crearPdfAuditoriaLocal() {
 
         const basico = obtenerResumenBasicoPdf();
         titulo("3. Vehículo");
-        linea("Estado", textoEstadoResumen(basico.vehiculo.estado));
-        linea("Matrícula", basico.vehiculo.matricula);
-        linea("Marca / modelo", [basico.vehiculo.marca, basico.vehiculo.modelo].filter(Boolean).join(" "));
-        linea("Tipo", basico.vehiculo.tipo);
-        linea("ITV", basico.vehiculo.itv);
-        linea("Seguro", basico.vehiculo.seguro);
+        if (moduloEstaNoAplica("vehiculo")) mostrarModuloNoAplica("Vehículo");
+        else {
+            linea("Estado", textoEstadoResumen(basico.vehiculo.estado));
+            linea("Matrícula", basico.vehiculo.matricula);
+            linea("Marca / modelo", [basico.vehiculo.marca, basico.vehiculo.modelo].filter(Boolean).join(" "));
+            linea("Tipo", basico.vehiculo.tipo);
+            linea("ITV", basico.vehiculo.itv);
+            linea("Seguro", basico.vehiculo.seguro);
+        }
 
         titulo("4. Extintor");
-        linea("Estado", textoEstadoResumen(basico.extintor.estado));
-        linea("Dispone", basico.extintor.dispone);
-        linea("Tipo / agente", [basico.extintor.tipo, basico.extintor.agente].filter(Boolean).join(" / "));
-        linea("Capacidad", basico.extintor.capacidad);
-        linea("Ubicación", basico.extintor.ubicacion);
-        linea("Identificación", basico.extintor.identificacion);
+        if (moduloEstaNoAplica("extintor")) mostrarModuloNoAplica("Extintor");
+        else {
+            linea("Estado", textoEstadoResumen(basico.extintor.estado));
+            linea("Dispone", basico.extintor.dispone);
+            linea("Tipo / agente", [basico.extintor.tipo, basico.extintor.agente].filter(Boolean).join(" / "));
+            linea("Capacidad", basico.extintor.capacidad);
+            linea("Ubicación", basico.extintor.ubicacion);
+            linea("Identificación", basico.extintor.identificacion);
+        }
 
         const epis = obtenerResumenEpis();
         titulo("5. EPIs y revisiones específicas");
-        if (epis.length) {
+        if (moduloEstaNoAplica("epis")) mostrarModuloNoAplica("EPIs");
+        else if (epis.length) {
             tabla(epis.map(e => [e.nombre, textoEstadoElemento(e.estadoElemento), e.marca, e.modelo, e.identificacion, e.estadoElemento === "ACTIVO" ? String(e.controles) : "—", e.estadoElemento === "ACTIVO" ? (e.resultado || "Pendiente") : "—"]), [30,26,22,22,27,15,40], ["EPI","Estado","Marca","Modelo","Identificación","Controles","Veredicto"]);
-        } else parrafo(episEsAplicable() ? "No hay elementos de EPIs registrados." : "EPIs: NO APLICA.");
+        } else parrafo("No hay elementos de EPIs registrados.");
 
         const radio = obtenerResumenRadio();
         titulo("6. RADIO - EPIs específicos");
-        if ((datos.actividad || "") === "RADIO" && radio.length) {
+        if (moduloEstaNoAplica("radio")) mostrarModuloNoAplica("RADIO");
+        else if ((datos.actividad || "") === "RADIO" && radio.length) {
             tabla(radio.map(e => [e.nombre, textoEstadoElemento(e.estadoElemento), e.marca, e.modelo, e.identificacion, e.estadoElemento === "ACTIVO" ? (e.resultado || "Pendiente") : "—"]), [32,26,22,25,38,39], ["Equipo","Estado","Marca","Modelo","Identificación","Veredicto"]);
         } else parrafo((datos.actividad || "") === "RADIO" ? "No hay elementos específicos de RADIO registrados." : "RADIO: NO APLICA por actividad.");
 
         const escaleras = obtenerResumenEscaleras();
         titulo("7. Escaleras");
-        if (escaleras.length) {
+        if (moduloEstaNoAplica("escaleras")) mostrarModuloNoAplica("Escaleras");
+        else if (escaleras.length) {
             tabla(escaleras.map(e => [e.nombre, e.tipo, e.fabricante, e.modelo, e.identificacion, textoEstadoResumen(e.estado)]), [27, 23, 32, 29, 31, 28], ["Escalera", "Tipo", "Fabricante", "Modelo", "Identificación", "Estado"]);
 
             // Fotografías de identificación asociadas a cada escalera, máximo 4 por unidad.
@@ -2783,20 +2806,22 @@ function crearPdfAuditoriaLocal() {
                     doc.setFontSize(8);
                     doc.text(etiqueta, margen, y);
                     y += 4;
-                    imagen(foto.dataUrl, margen, y, 80, 52);
+                    const yFoto = y;
+                    const imgInfo = imagen(foto.dataUrl, margen, yFoto, 80, 52);
                     if (foto.descripcion) {
                         doc.setFont("helvetica", "normal");
                         doc.setFontSize(7);
-                        doc.text(normalizarTextoPdf(foto.descripcion), 105, y + 5, { maxWidth: 85 });
+                        doc.text(normalizarTextoPdf(foto.descripcion), 105, yFoto + 5, { maxWidth: 85 });
                     }
-                    y += 57;
+                    y = Math.max(y, yFoto + 56);
                 });
             });
         } else parrafo("No hay escaleras registradas.");
 
         const botiquin = obtenerResumenBotiquinPdf();
         titulo("8. Botiquín");
-        if (botiquin.length) tabla(botiquin.map(e => [e.nombre, e.resultado, e.detalle]), [75, 35, 60], ["Comprobación", "Resultado", "Detalle"]);
+        if (moduloEstaNoAplica("botiquin")) mostrarModuloNoAplica("Botiquín");
+        else if (botiquin.length) tabla(botiquin.map(e => [e.nombre, e.resultado, e.detalle]), [75, 35, 60], ["Comprobación", "Resultado", "Detalle"]);
         else parrafo("No hay datos de botiquín registrados.");
 
         const incidencias = obtenerResumenIncidencias();
@@ -2809,39 +2834,56 @@ function crearPdfAuditoriaLocal() {
         titulo("10. Fotografías");
         if (fotos.length) {
             fotos.forEach((f, i) => {
-                asegurar(70);
+                // Reservar el bloque completo para que no quede el título de una fotografía
+                // al final de una página y la imagen en la siguiente.
+                asegurar(72);
                 doc.setFont("helvetica", "bold");
                 doc.setFontSize(8);
                 doc.text("Fotografía " + (i + 1) + " - " + (f.contexto || f.nombre), margen, y);
                 y += 4;
                 if (f.descripcion) { parrafo(f.descripcion); }
                 imagen(f.dataUrl, margen, y, 80, 58);
-                if (y > alto - 35) nuevaPagina();
             });
         } else parrafo("No hay fotografías registradas.");
 
         titulo("11. Firmas digitales");
-        asegurar(82);
+        asegurar(62);
+        const xFirmaIzq = margen;
+        const xFirmaDer = margen + anchoTexto / 2 + 5;
+        const anchoFirma = (anchoTexto - 5) / 2;
+        const yFirmaTitulo = y;
         doc.setFont("helvetica", "bold");
         doc.setFontSize(8);
-        doc.text("Firma del auditor", margen, y);
-        doc.text("Firma del trabajador/auditado", 108, y);
-        y += 3;
-        if (auditoria.firmas && auditoria.firmas.auditor) imagen(auditoria.firmas.auditor, margen, y, 82, 45);
-        else parrafo("Firma del auditor no disponible.");
-        const yFirmaTrabajador = y;
-        y = yFirmaTrabajador;
-        if (auditoria.firmas && auditoria.firmas.trabajador) {
+        doc.text("Firma del auditor", xFirmaIzq, yFirmaTitulo);
+        doc.text("Firma del trabajador/auditado", xFirmaDer, yFirmaTitulo);
+        const yFirma = yFirmaTitulo + 4;
+        const altoFirma = 38;
+        const dibujarFirma = (dataUrl, x, yy, wMax, hMax, textoVacio) => {
             try {
-                const props = doc.getImageProperties(auditoria.firmas.trabajador);
+                if (!dataUrl) throw new Error("sin firma");
+                const props = doc.getImageProperties(dataUrl);
                 const ratio = props.width / props.height;
-                let w = 82, h = w / ratio;
-                if (h > 45) { h = 45; w = h * ratio; }
-                asegurar(h + 8);
-                doc.addImage(auditoria.firmas.trabajador, undefined, 108, y, w, h, undefined, "FAST");
-            } catch (e) { doc.setFont("helvetica", "normal"); doc.text("Firma no disponible", 108, y + 5); }
-        } else { doc.setFont("helvetica", "normal"); doc.text("Firma del trabajador no disponible.", 108, y + 5); }
-        y += 52;
+                let w = wMax, h = w / ratio;
+                if (h > hMax) { h = hMax; w = h * ratio; }
+                doc.addImage(dataUrl, undefined, x, yy, w, h, undefined, "FAST");
+            } catch (e) {
+                doc.setFont("helvetica", "normal");
+                doc.setFontSize(7.5);
+                doc.text(textoVacio, x, yy + 6);
+            }
+        };
+        // Ambas firmas parten exactamente de la misma coordenada Y.
+        dibujarFirma(auditoria.firmas && auditoria.firmas.auditor, xFirmaIzq, yFirma, anchoFirma, altoFirma, "Firma del auditor no disponible.");
+        dibujarFirma(auditoria.firmas && auditoria.firmas.trabajador, xFirmaDer, yFirma, anchoFirma, altoFirma, "Firma del trabajador no disponible.");
+        // Líneas de firma alineadas.
+        doc.setDrawColor(150);
+        doc.line(xFirmaIzq, yFirma + altoFirma + 2, xFirmaIzq + anchoFirma, yFirma + altoFirma + 2);
+        doc.line(xFirmaDer, yFirma + altoFirma + 2, xFirmaDer + anchoFirma, yFirma + altoFirma + 2);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7.5);
+        doc.text(normalizarTextoPdf(datos.auditor || "Auditor"), xFirmaIzq, yFirma + altoFirma + 7);
+        doc.text(normalizarTextoPdf(datos.trabajador || "Trabajador/auditado"), xFirmaDer, yFirma + altoFirma + 7);
+        y = yFirma + altoFirma + 13;
         linea("Fecha de finalización", [auditoria.fechaFinalizacion, auditoria.horaFinalizacion].filter(Boolean).join(" "));
 
         pie();
