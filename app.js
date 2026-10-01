@@ -11420,6 +11420,18 @@ function abrirModuloCampo(modulo) {
     if (modulo === "observaciones") contenido.innerHTML = renderModuloCampoObservaciones();
     if (modulo === "resumen") contenido.innerHTML = renderModuloCampoResumen();
     mostrarPantalla("moduloCampo");
+    if (modulo === "datos") {
+        const campoDni = document.getElementById("campoDniNie");
+        if (campoDni?.value) validarDniNieCampoEnTiempoReal(campoDni);
+    }
+    if (modulo === "trabajadores") {
+        document.querySelectorAll("#contenidoModuloCampo input[oninput^=\"validarDniNieTrabajadorCampo\"]").forEach(campo => {
+            if (campo.value) {
+                const coincidencia = campo.getAttribute("oninput")?.match(/validarDniNieTrabajadorCampo\(this,'([^']+)'\)/);
+                if (coincidencia) validarDniNieTrabajadorCampo(campo, coincidencia[1]);
+            }
+        });
+    }
     if (modulo === "observaciones") configurarFirmasCampo();
 }
 
@@ -11450,6 +11462,42 @@ function guardarDatosCampoDesdeFormulario() {
     actualizarDashboardCampo();
 }
 
+function validarDniNieCampoEnTiempoReal(campo) {
+    const documento = normalizarDniNie(campo?.value || "");
+    if (campo) campo.value = documento;
+    auditoriaCampo.datos.dniNie = documento;
+    const mensaje = document.getElementById("campoDniNieError");
+    if (!mensaje) return !documento || validarDniNie(documento);
+    if (!documento) {
+        mensaje.textContent = "";
+        campo?.removeAttribute("aria-invalid");
+        return true;
+    }
+    const valido = validarDniNie(documento);
+    mensaje.textContent = valido ? "✓ DNI/NIE válido." : "DNI/NIE no válido: compruebe el número y la letra.";
+    mensaje.style.color = valido ? "green" : "#b00020";
+    if (campo) campo.setAttribute("aria-invalid", valido ? "false" : "true");
+    return valido;
+}
+
+function validarDniNieTrabajadorCampo(campo, id) {
+    const documento = normalizarDniNie(campo?.value || "");
+    if (campo) campo.value = documento;
+    actualizarTrabajadorCampo(id, "dni", documento);
+    const mensaje = campo?.parentElement?.querySelector("small[data-dni-error]");
+    if (!mensaje) return !documento || validarDniNie(documento);
+    if (!documento) {
+        mensaje.textContent = "";
+        campo?.removeAttribute("aria-invalid");
+        return true;
+    }
+    const valido = validarDniNie(documento);
+    mensaje.textContent = valido ? "✓ DNI/NIE válido." : "DNI/NIE no válido: compruebe el número y la letra.";
+    mensaje.style.color = valido ? "green" : "#b00020";
+    if (campo) campo.setAttribute("aria-invalid", valido ? "false" : "true");
+    return valido;
+}
+
 function renderModuloCampoDatos() {
     const d = auditoriaCampo.datos, l = d.localizacion || {};
     const actividad = d.actividad === "OTRA" ? (d.actividadOtra || "OTRA") : (d.actividad || "");
@@ -11470,7 +11518,7 @@ function renderModuloCampoDatos() {
         <div class="field"><label>Empresa</label><input id="campoEmpresa" value="${campoEsc(d.empresa || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
         <div class="field"><label>Proyecto</label><input id="campoProyecto" value="${campoEsc(d.proyecto || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
         <div class="field"><label>Trabajador principal</label><input id="campoTrabajador" value="${campoEsc(d.trabajador || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
-        <div class="field"><label>DNI / NIE</label><input id="campoDniNie" value="${campoEsc(d.dniNie || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label for="campoDniNie">DNI / NIE</label><input id="campoDniNie" maxlength="9" autocomplete="off" placeholder="Ej.: 12345678Z / X1234567L" value="${campoEsc(d.dniNie || "")}" oninput="validarDniNieCampoEnTiempoReal(this)" onchange="guardarDatosCampoDesdeFormulario()"><small id="campoDniNieError" style="display:block;margin-top:6px" aria-live="polite"></small></div>
         <div class="field"><label>Obra</label><input id="campoObra" value="${campoEsc(d.obra || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
         <div class="field"><label>Cliente</label><input id="campoCliente" value="${campoEsc(d.cliente || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
         <div class="field" style="grid-column:1/-1"><label>Dirección</label><input id="campoDireccion" value="${campoEsc(d.direccion || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
@@ -11532,7 +11580,7 @@ function actualizarTrabajadorCampo(id, clave, valor) {
     actualizarDashboardCampo();
 }
 function renderModuloCampoTrabajadores() {
-    const filas = auditoriaCampo.trabajadores.map((t,i)=>`<div class="card" style="margin-bottom:10px"><div style="display:grid;grid-template-columns:40px 1.4fr 1fr 1.2fr auto;gap:8px;align-items:end"><strong>#${i+1}</strong><div class="field"><label>Nombre y apellidos</label><input value="${campoEsc(t.nombre)}" oninput="actualizarTrabajadorCampo('${t.id}','nombre',this.value)"></div><div class="field"><label>DNI</label><input value="${campoEsc(t.dni)}" oninput="actualizarTrabajadorCampo('${t.id}','dni',this.value)"></div><div class="field"><label>Empresa</label><input value="${campoEsc(t.empresa)}" oninput="actualizarTrabajadorCampo('${t.id}','empresa',this.value)"></div><button type="button" class="btn-secondary" onclick="eliminarTrabajadorCampo('${t.id}')">Eliminar</button></div></div>`).join("");
+    const filas = auditoriaCampo.trabajadores.map((t,i)=>`<div class="card" style="margin-bottom:10px"><div style="display:grid;grid-template-columns:40px 1.4fr 1fr 1.2fr auto;gap:8px;align-items:end"><strong>#${i+1}</strong><div class="field"><label>Nombre y apellidos</label><input value="${campoEsc(t.nombre)}" oninput="actualizarTrabajadorCampo('${t.id}','nombre',this.value)"></div><div class="field"><label>DNI / NIE</label><input maxlength="9" autocomplete="off" placeholder="DNI/NIE" value="${campoEsc(t.dni)}" oninput="validarDniNieTrabajadorCampo(this,'${t.id}')"><small data-dni-error style="display:block;margin-top:6px" aria-live="polite"></small></div><div class="field"><label>Empresa</label><input value="${campoEsc(t.empresa)}" oninput="actualizarTrabajadorCampo('${t.id}','empresa',this.value)"></div><button type="button" class="btn-secondary" onclick="eliminarTrabajadorCampo('${t.id}')">Eliminar</button></div></div>`).join("");
     return `<div class="card"><p>Puede añadir trabajadores en cualquier momento, incluso después de haber comenzado el chequeo.</p><button type="button" class="primary-button" onclick="agregarTrabajadorCampo()">+ Añadir trabajador</button></div>${filas || '<div class="card">No hay trabajadores añadidos todavía.</div>'}`;
 }
 
@@ -11617,6 +11665,23 @@ function renderModuloCampoResumen(){
 
 function finalizarAuditoriaCampo(){
     const chk=estadoChequeoCampo();
+    // Sin documento se permite continuar; si se informa, debe ser válido.
+    const dniPrincipal=normalizarDniNie(auditoriaCampo.datos.dniNie || "");
+    if(dniPrincipal && !validarDniNie(dniPrincipal)){
+        alert("El DNI/NIE del trabajador principal no es válido. Compruebe el número y la letra.");
+        abrirModuloCampo("datos");
+        document.getElementById("campoDniNie")?.focus();
+        return;
+    }
+    const trabajadorInvalido=auditoriaCampo.trabajadores.find(t=>{
+        const dni=normalizarDniNie(t.dni || "");
+        return dni && !validarDniNie(dni);
+    });
+    if(trabajadorInvalido){
+        alert("Hay un DNI/NIE no válido en el listado de trabajadores. Corríjalo antes de finalizar.");
+        abrirModuloCampo("trabajadores");
+        return;
+    }
     if(!auditoriaCampo.datos.fecha){alert("Debe indicar la fecha.");return;}
     if(!chk.completo){alert(`Faltan comprobaciones por responder: ${chk.total-chk.completadas}.`);return;}
     if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
