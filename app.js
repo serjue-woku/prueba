@@ -11647,7 +11647,8 @@ function actualizarDashboardCampo(){
     inicializarAuditoriaCampo();
     const d=auditoriaCampo.datos, chk=estadoChequeoCampo();
     const ident=document.getElementById("dashboardCampoIdentificacion"); if(ident) ident.textContent=[d.obra,d.cliente,d.fecha,d.auditor].filter(Boolean).join(" · ") || auditoriaCampo.id;
-    const sd=document.getElementById("statusCampoDatos"); if(sd) sd.textContent=d.fecha?"COMPLETOS":"PENDIENTE";
+    const datosObligatoriosCompletos=Boolean(d.fecha && String(d.auditor||"").trim());
+    const sd=document.getElementById("statusCampoDatos"); if(sd) sd.textContent=datosObligatoriosCompletos?"COMPLETOS":"PENDIENTE";
     const st=document.getElementById("statusCampoTrabajadores"); if(st) st.textContent=String(auditoriaCampo.trabajadores.length)+" trabajador"+(auditoriaCampo.trabajadores.length===1?"":"es");
     const sc=document.getElementById("statusCampoChequeo"); if(sc) sc.textContent=`${chk.completadas}/${chk.total}`;
     const sf=document.getElementById("statusCampoFotos"); if(sf) sf.textContent=String(auditoriaCampo.fotografias.filter(f=>f.dataUrl).length);
@@ -11683,6 +11684,12 @@ function finalizarAuditoriaCampo(){
         return;
     }
     if(!auditoriaCampo.datos.fecha){alert("Debe indicar la fecha.");return;}
+    if(!String(auditoriaCampo.datos.auditor||"").trim()){
+        alert("Debe indicar el auditor.");
+        abrirModuloCampo("datos");
+        document.getElementById("campoAuditorCampo")?.focus();
+        return;
+    }
     if(!chk.completo){alert(`Faltan comprobaciones por responder: ${chk.total-chk.completadas}.`);return;}
     if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
     auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen"); alert("Auditoría de campo finalizada correctamente. ID: "+auditoriaCampo.id);
