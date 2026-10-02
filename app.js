@@ -729,6 +729,7 @@ document.addEventListener(
         actualizarAplicabilidad();
 
         inicializarCampoDniNie();
+        instalarSincronizacionTrabajadorPrincipal();
         inicializarBotonDatosGeneralesDashboard();
         inicializarBotonDashboardTodosLosModulos();
 
@@ -832,6 +833,96 @@ function actualizarAplicabilidad() {
     actualizarEstadosDashboard();
 }
 
+
+/* =========================================================
+   SINCRONIZACIÓN DEL TRABAJADOR PRINCIPAL ENTRE MÓDULOS
+   ========================================================= */
+function sincronizarTrabajadorPrincipal(origen, valores) {
+    const fuente = valores || {};
+    const identidad = {
+        trabajador: String(fuente.trabajador ?? "").trim(),
+        dniNie: normalizarDniNie(fuente.dniNie ?? ""),
+        empresa: String(fuente.empresa ?? "").trim()
+    };
+    auditoria.datosGenerales.empresa = identidad.empresa;
+    auditoria.datosGenerales.trabajador = identidad.trabajador;
+    auditoria.datosGenerales.dniNie = identidad.dniNie;
+    auditoriaCampo.datos.empresa = identidad.empresa;
+    auditoriaCampo.datos.trabajador = identidad.trabajador;
+    auditoriaCampo.datos.dniNie = identidad.dniNie;
+
+    const campos = {
+        empresa: ["empresa", "campoEmpresa"],
+        trabajador: ["trabajador", "campoTrabajador"],
+        dniNie: ["dniNieTrabajador", "campoDniNie"]
+    };
+    Object.entries(campos).forEach(([clave, ids]) => ids.forEach(id => {
+        const input = document.getElementById(id);
+        if (input && document.activeElement !== input) input.value = identidad[clave];
+    }));
+
+    const hayIdentidad = identidad.trabajador || identidad.dniNie || identidad.empresa;
+    if (hayIdentidad && Array.isArray(auditoriaCampo.trabajadores)) {
+        const dni = identidad.dniNie.toUpperCase();
+        const nombre = identidad.trabajador.toUpperCase();
+        let principal = auditoriaCampo.trabajadores.find(t =>
+            auditoriaCampo.trabajadorPrincipalId && t.id === auditoriaCampo.trabajadorPrincipalId
+        );
+        if (!principal) {
+            principal = auditoriaCampo.trabajadores.find(t =>
+                (dni && String(t.dni || "").trim().toUpperCase() === dni) ||
+                (!dni && nombre && String(t.nombre || "").trim().toUpperCase() === nombre) ||
+                t.id === "TC-PRINCIPAL" || String(t.id || "").startsWith("TC-VDF-")
+            );
+        }
+        if (!principal && origen !== "listaCampo") {
+            principal = { id: "TC-PRINCIPAL", nombre: "", dni: "", empresa: "" };
+            auditoriaCampo.trabajadores.unshift(principal);
+        }
+        if (principal) {
+            auditoriaCampo.trabajadorPrincipalId = principal.id;
+            principal.nombre = identidad.trabajador;
+            principal.dni = identidad.dniNie;
+            principal.empresa = identidad.empresa;
+        }
+    }
+}
+
+function sincronizarTrabajadorDesdeVehiculos() {
+    const dg = auditoria.datosGenerales || {};
+    sincronizarTrabajadorPrincipal("vehiculos", {
+        trabajador: document.getElementById("trabajador")?.value ?? dg.trabajador,
+        dniNie: document.getElementById("dniNieTrabajador")?.value ?? dg.dniNie,
+        empresa: document.getElementById("empresa")?.value ?? dg.empresa
+    });
+}
+
+function sincronizarTrabajadorDesdeCampo() {
+    const d = auditoriaCampo.datos || {};
+    sincronizarTrabajadorPrincipal("campo", {
+        trabajador: document.getElementById("campoTrabajador")?.value ?? d.trabajador,
+        dniNie: document.getElementById("campoDniNie")?.value ?? d.dniNie,
+        empresa: document.getElementById("campoEmpresa")?.value ?? d.empresa
+    });
+}
+
+function instalarSincronizacionTrabajadorPrincipal() {
+    [["empresa", "empresa"], ["trabajador", "trabajador"], ["dniNieTrabajador", "dniNie"]].forEach(([id, clave]) => {
+        const input = document.getElementById(id);
+        if (!input || input.dataset.sincronizacionTrabajador === "1") return;
+        input.dataset.sincronizacionTrabajador = "1";
+        input.addEventListener("input", () => {
+            const dg = auditoria.datosGenerales;
+            if (clave === "dniNie") {
+                input.value = normalizarDniNie(input.value);
+                dg.dniNie = input.value;
+            } else {
+                dg[clave] = input.value.trim();
+            }
+            sincronizarTrabajadorDesdeVehiculos();
+        });
+    });
+}
 
 /* =========================================================
    GUARDAR DATOS GENERALES
@@ -1022,6 +1113,7 @@ function guardarDatosGenerales() {
             .codigoPostal =
             codigoPostal.value.trim();
     }
+    sincronizarTrabajadorDesdeVehiculos();
 }
 
 
@@ -11347,6 +11439,8 @@ function sincronizarDatosVehiculosEnCampo() {
     copiarSiVacio(dc, "proyecto", dg.proyecto);
     copiarSiVacio(dc, "trabajador", dg.trabajador);
     copiarSiVacio(dc, "dniNie", dg.dniNie);
+    const identidadBase = (dg.trabajador || dg.dniNie || dg.empresa) ? dg : dc;
+    sincronizarTrabajadorPrincipal("inicio", identidadBase);
     copiarSiVacio(dc, "cliente", dg.empresa);
     copiarSiVacio(dc, "obra", dg.proyecto);
     copiarSiVacio(dc, "direccion", loc.direccion);
@@ -11461,6 +11555,7 @@ function guardarDatosCampoDesdeFormulario() {
     auditoriaCampo.datos.localizacion.provincia = val("campoProvincia") || auditoriaCampo.datos.localizacion.provincia || "";
     auditoriaCampo.datos.localizacion.codigoPostal = val("campoCodigoPostal") || auditoriaCampo.datos.localizacion.codigoPostal || "";
     auditoriaCampo.estado = auditoriaCampo.estado === "FINALIZADA" ? "FINALIZADA" : "EN_CURSO";
+    sincronizarTrabajadorDesdeCampo();
     actualizarDashboardCampo();
 }
 
@@ -11468,6 +11563,11 @@ function validarDniNieCampoEnTiempoReal(campo) {
     const documento = normalizarDniNie(campo?.value || "");
     if (campo) campo.value = documento;
     auditoriaCampo.datos.dniNie = documento;
+    sincronizarTrabajadorPrincipal("campo", {
+        trabajador: auditoriaCampo.datos.trabajador,
+        dniNie: documento,
+        empresa: auditoriaCampo.datos.empresa
+    });
     const mensaje = document.getElementById("campoDniNieError");
     if (!mensaje) return !documento || validarDniNie(documento);
     if (!documento) {
@@ -11517,9 +11617,9 @@ function renderModuloCampoDatos() {
         <div class="field"><label>Tipo de personal</label><input id="campoTipoPersonal" value="${campoEsc(d.tipoPersonal || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
         <div class="field"><label>Actividad</label><input id="campoActividad" value="${campoEsc(actividad)}" onchange="guardarDatosCampoDesdeFormulario()"></div>
         <div class="field"><label>Otra actividad</label><input id="campoActividadOtra" value="${campoEsc(d.actividadOtra || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
-        <div class="field"><label>Empresa</label><input id="campoEmpresa" value="${campoEsc(d.empresa || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Empresa</label><input id="campoEmpresa" value="${campoEsc(d.empresa || "")}" oninput="guardarDatosCampoDesdeFormulario()"></div>
         <div class="field"><label>Proyecto</label><input id="campoProyecto" value="${campoEsc(d.proyecto || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
-        <div class="field"><label>Trabajador principal</label><input id="campoTrabajador" value="${campoEsc(d.trabajador || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
+        <div class="field"><label>Trabajador principal</label><input id="campoTrabajador" value="${campoEsc(d.trabajador || "")}" oninput="guardarDatosCampoDesdeFormulario()"></div>
         <div class="field"><label for="campoDniNie">DNI / NIE</label><input id="campoDniNie" maxlength="9" autocomplete="off" placeholder="Ej.: 12345678Z / X1234567L" value="${campoEsc(d.dniNie || "")}" oninput="validarDniNieCampoEnTiempoReal(this)" onchange="guardarDatosCampoDesdeFormulario()"><small id="campoDniNieError" style="display:block;margin-top:6px" aria-live="polite"></small></div>
         <div class="field"><label>Obra</label><input id="campoObra" value="${campoEsc(d.obra || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
         <div class="field"><label>Cliente</label><input id="campoCliente" value="${campoEsc(d.cliente || "")}" onchange="guardarDatosCampoDesdeFormulario()"></div>
@@ -11577,8 +11677,17 @@ function eliminarTrabajadorCampo(id) {
     abrirModuloCampo("trabajadores");
 }
 function actualizarTrabajadorCampo(id, clave, valor) {
-    const t = auditoriaCampo.trabajadores.find(x => x.id === id);
+    const indice = auditoriaCampo.trabajadores.findIndex(x => x.id === id);
+    const t = indice >= 0 ? auditoriaCampo.trabajadores[indice] : null;
     if (t) t[clave] = valor;
+    if (t && indice === 0) {
+        auditoriaCampo.trabajadorPrincipalId = t.id;
+        sincronizarTrabajadorPrincipal("listaCampo", {
+            trabajador: t.nombre || "",
+            dniNie: t.dni || "",
+            empresa: t.empresa || ""
+        });
+    }
     actualizarDashboardCampo();
 }
 function renderModuloCampoTrabajadores() {
