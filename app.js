@@ -2427,7 +2427,6 @@ function finalizarAuditoriaDesdeResumen() {
     auditoria.fechaFinalizacion = obtenerFechaActual();
     auditoria.horaFinalizacion = obtenerHoraActual();
     auditoria.finalizada = true;
-    registrarAuditoriaVehiculosEnHistorico();
     actualizarDashboard();
     renderizarResumenFinalizar();
     alert("Auditoría finalizada correctamente. ID: " + auditoria.id);
@@ -11201,6 +11200,7 @@ let auditoriaCampo = {
     trabajadores: [],
     comprobaciones: {},
     observaciones: "",
+    incidencias: [],
     fotografias: [],
     firmas: { auditor: "", trabajador: "" },
     fechaFinalizacion: "",
@@ -11222,117 +11222,8 @@ function inicializarAuditoriaCampo() {
     });
     if (!Array.isArray(auditoriaCampo.trabajadores)) auditoriaCampo.trabajadores = [];
     if (!Array.isArray(auditoriaCampo.fotografias)) auditoriaCampo.fotografias = [];
+    if (!Array.isArray(auditoriaCampo.incidencias)) auditoriaCampo.incidencias = [];
     if (!auditoriaCampo.firmas) auditoriaCampo.firmas = { auditor: "", trabajador: "" };
-}
-
-/* =========================================================
-   HISTÓRICO LOCAL Y ESTADÍSTICAS DEL DASHBOARD GENERAL
-   Se almacenan únicamente metadatos agregados de auditorías finalizadas.
-   No se guardan DNI, firmas, fotografías ni el contenido completo.
-   ========================================================= */
-const CLAVE_HISTORICO_AUDITORIAS = "spm_grupo_zener_historico_auditorias_v1";
-
-function leerHistoricoAuditorias() {
-    try {
-        const raw = localStorage.getItem(CLAVE_HISTORICO_AUDITORIAS);
-        const datos = raw ? JSON.parse(raw) : [];
-        return Array.isArray(datos) ? datos.filter(x => x && x.id && x.tipo) : [];
-    } catch (error) {
-        console.warn("No se pudo leer el histórico local de auditorías.", error);
-        return [];
-    }
-}
-
-function guardarEnHistoricoAuditoria(registro) {
-    if (!registro || !registro.id || !registro.tipo) return false;
-    try {
-        const historico = leerHistoricoAuditorias();
-        const indice = historico.findIndex(x => x.id === registro.id && x.tipo === registro.tipo);
-        if (indice >= 0) historico[indice] = { ...historico[indice], ...registro };
-        else historico.push(registro);
-        historico.sort((a, b) => String(b.fechaFinalizacion || b.fecha || "").localeCompare(String(a.fechaFinalizacion || a.fecha || "")));
-        localStorage.setItem(CLAVE_HISTORICO_AUDITORIAS, JSON.stringify(historico));
-        actualizarDashboardGeneral();
-        return true;
-    } catch (error) {
-        console.error("No se pudo guardar el histórico local de auditorías.", error);
-        return false;
-    }
-}
-
-function registrarAuditoriaVehiculosEnHistorico() {
-    const d = auditoria.datosGenerales || {};
-    return guardarEnHistoricoAuditoria({
-        id: auditoria.id,
-        tipo: "VEHICULOS",
-        fecha: d.fecha || "",
-        fechaFinalizacion: auditoria.fechaFinalizacion || obtenerFechaActual(),
-        horaFinalizacion: auditoria.horaFinalizacion || obtenerHoraActual(),
-        incidencias: Array.isArray(auditoria.incidencias) ? auditoria.incidencias.length : 0,
-        resultado: (auditoria.incidencias || []).length ? "CON INCIDENCIAS" : "SIN INCIDENCIAS"
-    });
-}
-
-function registrarAuditoriaCampoEnHistorico() {
-    const d = auditoriaCampo.datos || {};
-    const incidencias = Object.values(auditoriaCampo.comprobaciones || {}).filter(c => c && c.resultado === "NO").length;
-    return guardarEnHistoricoAuditoria({
-        id: auditoriaCampo.id,
-        tipo: "CAMPO",
-        fecha: d.fecha || "",
-        fechaFinalizacion: auditoriaCampo.fechaFinalizacion || obtenerFechaActual(),
-        horaFinalizacion: auditoriaCampo.horaFinalizacion || obtenerHoraActual(),
-        incidencias,
-        resultado: incidencias ? "CON INCIDENCIAS" : "SIN INCIDENCIAS"
-    });
-}
-
-function actualizarDashboardGeneral() {
-    const panel = document.getElementById("globalOverview");
-    const lista = document.getElementById("globalHistoryList");
-    if (!panel && !lista) return;
-    const historico = leerHistoricoAuditorias();
-    const total = historico.length;
-    const vehiculos = historico.filter(x => x.tipo === "VEHICULOS").length;
-    const campo = historico.filter(x => x.tipo === "CAMPO").length;
-    const incidencias = historico.reduce((suma, x) => suma + (Number(x.incidencias) || 0), 0);
-    const valores = { total, vehiculos, campo, incidencias };
-    if (panel) {
-        Object.entries(valores).forEach(([clave, valor]) => {
-            const el = panel.querySelector(`[data-stat="${clave}"]`);
-            if (el) el.textContent = String(valor);
-        });
-    }
-    if (lista) {
-        lista.replaceChildren();
-        if (!historico.length) {
-            const vacio = document.createElement("p");
-            vacio.className = "global-history-empty";
-            vacio.textContent = "Todavía no hay auditorías finalizadas guardadas en este navegador.";
-            lista.appendChild(vacio);
-            return;
-        }
-        historico.slice(0, 8).forEach(registro => {
-            const fila = document.createElement("div");
-            fila.className = "global-history-row";
-            const principal = document.createElement("div");
-            principal.className = "global-history-main";
-            const id = document.createElement("strong");
-            id.textContent = registro.id;
-            const tipo = document.createElement("span");
-            tipo.textContent = registro.tipo === "CAMPO" ? "Auditoría de campo" : "Auditoría de vehículos y equipos";
-            principal.append(id, tipo);
-            const detalle = document.createElement("div");
-            detalle.className = "global-history-detail";
-            const fecha = document.createElement("span");
-            fecha.textContent = [registro.fechaFinalizacion || registro.fecha, registro.horaFinalizacion].filter(Boolean).join(" · ");
-            const resultado = document.createElement("span");
-            resultado.textContent = `${Number(registro.incidencias) || 0} incidencia(s) · ${registro.resultado || "FINALIZADA"}`;
-            detalle.append(fecha, resultado);
-            fila.append(principal, detalle);
-            lista.appendChild(fila);
-        });
-    }
 }
 
 function instalarDashboardAuditoriasIndependientes() {
@@ -11347,16 +11238,6 @@ function instalarDashboardAuditoriasIndependientes() {
                 <h2>Auditorías SPM Grupo Zener</h2>
                 <p>Seleccione el tipo de auditoría que desea realizar.</p>
             </div>
-        </div>
-        <div id="globalOverview" class="global-overview" aria-label="Estadísticas de auditorías finalizadas">
-            <div class="global-stat"><span class="global-stat-label">Auditorías finalizadas</span><strong data-stat="total">0</strong></div>
-            <div class="global-stat"><span class="global-stat-label">Vehículos y equipos</span><strong data-stat="vehiculos">0</strong></div>
-            <div class="global-stat"><span class="global-stat-label">Auditorías de campo</span><strong data-stat="campo">0</strong></div>
-            <div class="global-stat"><span class="global-stat-label">Incidencias registradas</span><strong data-stat="incidencias">0</strong></div>
-        </div>
-        <div class="global-history card">
-            <div class="global-history-heading"><h3>Últimas auditorías</h3><small>Histórico local de este navegador</small></div>
-            <div id="globalHistoryList"><p class="global-history-empty">Todavía no hay auditorías finalizadas guardadas en este navegador.</p></div>
         </div>
         <div class="module-grid">
             <button type="button" class="module-card" onclick="abrirAuditoriaVehiculosDesdeInicio()">
@@ -11376,7 +11257,6 @@ function instalarDashboardAuditoriasIndependientes() {
     if (tituloHeader) tituloHeader.textContent = "Auditorías SPM Grupo Zener";
     inicializarAuditoriaCampo();
     instalarDashboardCampo();
-    actualizarDashboardGeneral();
 }
 
 function abrirAuditoriaVehiculosDesdeInicio() {
@@ -11387,7 +11267,6 @@ function abrirAuditoriaVehiculosDesdeInicio() {
 }
 
 function volverSelectorAuditorias() {
-    actualizarDashboardGeneral();
     mostrarPantalla("auditoriasInicio");
 }
 
@@ -11409,7 +11288,7 @@ function instalarDashboardCampo() {
         <button type="button" class="module-card" onclick="abrirModuloCampo('trabajadores')"><span class="module-icon">👷</span><strong>Trabajadores</strong><span id="statusCampoTrabajadores" class="status status-gray">0</span></button>
         <button type="button" class="module-card" onclick="abrirModuloCampo('chequeo')"><span class="module-icon">☑️</span><strong>Chequeo de seguridad</strong><span id="statusCampoChequeo" class="status status-gray">PENDIENTE</span></button>
         <button type="button" class="module-card" onclick="abrirModuloCampo('fotografias')"><span class="module-icon">📷</span><strong>Fotografías</strong><span id="statusCampoFotos" class="status status-gray">0</span></button>
-        <button type="button" class="module-card" onclick="abrirModuloCampo('observaciones')"><span class="module-icon">📝</span><strong>Observaciones y firmas</strong><span id="statusCampoFirmas" class="status status-gray">PENDIENTE</span></button>
+        <button type="button" class="module-card" onclick="abrirModuloCampo('observaciones')"><span class="module-icon">📝</span><strong>Observaciones, incidencias y firmas</strong><span id="statusCampoFirmas" class="status status-gray">PENDIENTE</span><small>Incidencias: <b id="statusCampoIncidencias">0</b></small></button>
         <button type="button" class="module-card summary-card" onclick="abrirModuloCampo('resumen')"><span class="module-icon">📋</span><strong>Resumen / Finalizar / PDF</strong><span id="statusCampoFinal" class="status status-gray">BORRADOR</span></button>
       </div>
       <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
@@ -11754,8 +11633,53 @@ function configurarFirmasCampo() {
 }
 function limpiarFirmaCampo(clave){ auditoriaCampo.firmas[clave]=""; abrirModuloCampo("observaciones"); }
 function guardarObservacionesCampo(){ auditoriaCampo.observaciones=document.getElementById("campoObservaciones")?.value||""; actualizarDashboardCampo(); }
+function obtenerOpcionesApartadosIncidenciaCampo(seleccionado="") {
+    return Object.entries(ESTRUCTURA_AUDITORIA_CAMPO).map(([clave,seccion]) =>
+        `<optgroup label="${campoEsc(seccion.titulo)}">${seccion.items.map(([id,texto])=>`<option value="${campoEsc(id)}" ${seleccionado===id?"selected":""}>${campoEsc(id)} · ${campoEsc(texto)}</option>`).join("")}</optgroup>`
+    ).join("");
+}
+function crearIncidenciaCampo() {
+    const id="IC-"+Date.now()+"-"+Math.floor(Math.random()*1000);
+    auditoriaCampo.incidencias.push({id, apartado:"", comentario:"", fotografias:[], fecha: new Date().toISOString()});
+    auditoriaCampo.estado="EN_CURSO";
+    abrirModuloCampo("observaciones");
+    setTimeout(()=>document.getElementById("incidenciaCampo_"+id)?.scrollIntoView({behavior:"smooth",block:"center"}),0);
+}
+function actualizarIncidenciaCampo(id,campo,valor) {
+    const inc=auditoriaCampo.incidencias.find(x=>x.id===id); if(!inc)return;
+    inc[campo]=valor; actualizarDashboardCampo();
+}
+function eliminarIncidenciaCampo(id) {
+    if(!confirm("¿Desea eliminar esta incidencia y sus fotografías?"))return;
+    auditoriaCampo.incidencias=auditoriaCampo.incidencias.filter(x=>x.id!==id);
+    abrirModuloCampo("observaciones");
+}
+function cargarFotosIncidenciaCampo(ev,id) {
+    const inc=auditoriaCampo.incidencias.find(x=>x.id===id), files=Array.from(ev.target.files||[]); if(!inc||!files.length)return;
+    const validos=files.filter(f=>f.type.startsWith("image/"));
+    if(validos.some(f=>f.size>8*1024*1024)){alert("Cada fotografía debe pesar 8 MB o menos.");return;}
+    let pendientes=validos.length;
+    validos.forEach(file=>{const reader=new FileReader();reader.onload=()=>{inc.fotografias.push({dataUrl:reader.result,nombre:file.name});if(--pendientes===0)abrirModuloCampo("observaciones");};reader.onerror=()=>{if(--pendientes===0)abrirModuloCampo("observaciones");};reader.readAsDataURL(file);});
+}
+function eliminarFotoIncidenciaCampo(id,indice) {
+    const inc=auditoriaCampo.incidencias.find(x=>x.id===id); if(!inc)return;
+    inc.fotografias.splice(indice,1); abrirModuloCampo("observaciones");
+}
+function renderIncidenciasCampo() {
+    const incidencias=auditoriaCampo.incidencias||[];
+    const cards=incidencias.map((inc,i)=>`<div class="campo-incidencia-card" id="incidenciaCampo_${campoEsc(inc.id)}">
+      <div class="campo-incidencia-head"><strong>Incidencia ${i+1}</strong><button type="button" class="btn-secondary" onclick="eliminarIncidenciaCampo('${campoEsc(inc.id)}')">Eliminar incidencia</button></div>
+      <div class="field"><label>Apartado del chequeo de seguridad *</label><select onchange="actualizarIncidenciaCampo('${campoEsc(inc.id)}','apartado',this.value)"><option value="">Seleccione el punto relacionado</option>${obtenerOpcionesApartadosIncidenciaCampo(inc.apartado||"")}</select></div>
+      <div class="field"><label>Descripción / comentarios de la incidencia *</label><textarea rows="4" placeholder="Describa la incidencia detectada..." oninput="actualizarIncidenciaCampo('${campoEsc(inc.id)}','comentario',this.value)">${campoEsc(inc.comentario||"")}</textarea></div>
+      <div class="field"><label>Fotografías de la incidencia</label><div class="campo-incidencia-upload"><label class="btn-secondary">📷 Hacer fotografía<input type="file" accept="image/*" capture="environment" onchange="cargarFotosIncidenciaCampo(event,'${campoEsc(inc.id)}')"></label><label class="btn-secondary">📁 Adjuntar desde archivos<input type="file" accept="image/*" multiple onchange="cargarFotosIncidenciaCampo(event,'${campoEsc(inc.id)}')"></label></div></div>
+      <div class="campo-incidencia-fotos">${(inc.fotografias||[]).map((f,j)=>`<div class="campo-incidencia-foto">${f.dataUrl?`<img src="${f.dataUrl}" alt="Foto de incidencia ${i+1}">`:""}<small>${campoEsc(f.nombre||"Fotografía")}</small><button type="button" class="btn-secondary" onclick="eliminarFotoIncidenciaCampo('${campoEsc(inc.id)}',${j})">Quitar foto</button></div>`).join("")}</div>
+    </div>`).join("");
+    return `<div class="campo-incidencias-wrap"><div class="campo-incidencias-title"><div><h3>Incidencias detectadas</h3><p>Las respuestas «No» del chequeo no generan incidencias automáticamente. Registre aquí solo las incidencias que haya identificado.</p></div><span class="campo-incidencias-count">${incidencias.length}</span></div><button type="button" class="primary-button" onclick="crearIncidenciaCampo()">+ Añadir incidencia</button>${cards||'<p class="campo-sin-incidencias">No se han registrado incidencias.</p>'}</div>`;
+}
+
 function renderModuloCampoObservaciones(){
-    return `<div class="card"><div class="field"><label>OBSERVACIONES</label><textarea id="campoObservaciones" style="min-height:220px" oninput="guardarObservacionesCampo()">${campoEsc(auditoriaCampo.observaciones||"")}</textarea></div></div>
+    return `<div class="card"><div class="field"><label>OBSERVACIONES</label><textarea id="campoObservaciones" style="min-height:160px" oninput="guardarObservacionesCampo()">${campoEsc(auditoriaCampo.observaciones||"")}</textarea></div></div>
+    ${renderIncidenciasCampo()}
     <div class="card"><h3>Firma del auditor</h3><canvas id="firmaCampo_auditor" class="firma-canvas" style="width:100%;height:140px;border:1px solid #333;background:#fff;touch-action:none"></canvas><button type="button" class="btn-secondary" onclick="limpiarFirmaCampo('auditor')">Limpiar firma</button></div>
     <div class="card"><h3>Firma por los trabajadores</h3><canvas id="firmaCampo_trabajador" class="firma-canvas" style="width:100%;height:140px;border:1px solid #333;background:#fff;touch-action:none"></canvas><button type="button" class="btn-secondary" onclick="limpiarFirmaCampo('trabajador')">Limpiar firma</button></div>`;
 }
@@ -11774,14 +11698,15 @@ function actualizarDashboardCampo(){
     const st=document.getElementById("statusCampoTrabajadores"); if(st) st.textContent=String(auditoriaCampo.trabajadores.length)+" trabajador"+(auditoriaCampo.trabajadores.length===1?"":"es");
     const sc=document.getElementById("statusCampoChequeo"); if(sc) sc.textContent=`${chk.completadas}/${chk.total}`;
     const sf=document.getElementById("statusCampoFotos"); if(sf) sf.textContent=String(auditoriaCampo.fotografias.filter(f=>f.dataUrl).length);
-    const ss=document.getElementById("statusCampoFirmas"); if(ss) ss.textContent=auditoriaCampo.firmas.auditor&&auditoriaCampo.firmas.trabajador?"COMPLETAS":"PENDIENTE";
+    const ss=document.getElementById("statusCampoFirmas"); if(ss) ss.textContent=auditoriaCampo.firmas.auditor&&auditoriaCampo.firmas.trabajador?"FIRMAS COMPLETAS":"FIRMAS PENDIENTES";
+    const si=document.getElementById("statusCampoIncidencias"); if(si) si.textContent=String((auditoriaCampo.incidencias||[]).length);
     const sfin=document.getElementById("statusCampoFinal"); if(sfin) sfin.textContent=auditoriaCampo.estado;
 }
 
 function renderModuloCampoResumen(){
     const chk=estadoChequeoCampo(), f1=!!auditoriaCampo.firmas.auditor, f2=!!auditoriaCampo.firmas.trabajador;
     const no=[...Object.entries(auditoriaCampo.comprobaciones).filter(([,v])=>v.resultado==="NO").map(([id])=>id)];
-    return `<div class="card"><h3>${campoEsc(auditoriaCampo.id)}</h3><p><strong>Obra:</strong> ${campoEsc(auditoriaCampo.datos.obra)} · <strong>Cliente:</strong> ${campoEsc(auditoriaCampo.datos.cliente)} · <strong>Fecha:</strong> ${campoEsc(auditoriaCampo.datos.fecha)}</p><p><strong>Trabajadores:</strong> ${auditoriaCampo.trabajadores.length} · <strong>Chequeos:</strong> ${chk.completadas}/${chk.total} · <strong>Respuestas NO:</strong> ${no.length}</p></div>
+    return `<div class="card"><h3>${campoEsc(auditoriaCampo.id)}</h3><p><strong>Obra:</strong> ${campoEsc(auditoriaCampo.datos.obra)} · <strong>Cliente:</strong> ${campoEsc(auditoriaCampo.datos.cliente)} · <strong>Fecha:</strong> ${campoEsc(auditoriaCampo.datos.fecha)}</p><p><strong>Trabajadores:</strong> ${auditoriaCampo.trabajadores.length} · <strong>Chequeos:</strong> ${chk.completadas}/${chk.total} · <strong>Respuestas NO:</strong> ${no.length} · <strong>Incidencias registradas:</strong> ${(auditoriaCampo.incidencias||[]).length}</p></div>
     <div class="card"><strong>Estado:</strong> ${campoEsc(auditoriaCampo.estado)}<br><small>Para finalizar deben estar respondidos todos los puntos SI/NO/NA y existir las dos firmas.</small></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" class="primary-button" onclick="finalizarAuditoriaCampo()">FINALIZAR AUDITORÍA DE CAMPO</button><button type="button" class="secondary-button" onclick="generarPdfAuditoriaCampoLocal()">GENERAR PDF DE PRUEBA</button>${auditoriaCampo.estado==="FINALIZADA"?`<button type="button" class="secondary-button" onclick="verPdfAuditoriaCampoLocal()">VER PDF</button>`:""}</div>`;
 }
@@ -11808,7 +11733,7 @@ function finalizarAuditoriaCampo(){
     if(!auditoriaCampo.datos.fecha){alert("Debe indicar la fecha.");return;}
     if(!chk.completo){alert(`Faltan comprobaciones por responder: ${chk.total-chk.completadas}.`);return;}
     if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
-    auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); registrarAuditoriaCampoEnHistorico(); actualizarDashboardCampo(); abrirModuloCampo("resumen"); alert("Auditoría de campo finalizada correctamente. ID: "+auditoriaCampo.id);
+    auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen"); alert("Auditoría de campo finalizada correctamente. ID: "+auditoriaCampo.id);
 }
 
 function textoResultadoCampo(r){ return r==="SI"?"SI":r==="NO"?"NO":r==="NA"?"NA":""; }
@@ -11887,7 +11812,21 @@ function crearPdfAuditoriaCampoLocal(){
         ["ESPACIOS_CONFINADOS","RIESGO_ELECTRICO","OBRA_CIVIL"].forEach(section);
         // Observaciones
         ensure(55);doc.setFillColor(...blue);doc.rect(M,y,CW,6.5,"FD");doc.setTextColor(255,255,255);doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("OBSERVACIONES",M+CW/2,y+4.3,{align:"center"});doc.setTextColor(0,0,0);y+=6.5;doc.rect(M,y,CW,45);doc.setFont(FUENTE,"normal");doc.setFontSize(6.5);const obs=wrap(auditoriaCampo.observaciones||"",CW-4,6.5);doc.text(obs.slice(0,15),M+2,y+4);y+=49;
-        // Fotos, si existen, en páginas posteriores manteniendo el informe independiente.
+        // Incidencias registradas manualmente, independientes de las respuestas NO.
+        const incidenciasCampo=auditoriaCampo.incidencias||[];
+        if(incidenciasCampo.length){
+            ensure(12);doc.setFillColor(...blue);doc.rect(M,y,CW,6.5,"FD");doc.setTextColor(255,255,255);doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("INCIDENCIAS DETECTADAS",M+CW/2,y+4.3,{align:"center"});doc.setTextColor(0,0,0);y+=8;
+            incidenciasCampo.forEach((inc,i)=>{
+                const punto=Object.values(ESTRUCTURA_AUDITORIA_CAMPO).flatMap(sec=>sec.items).find(([id])=>id===inc.apartado);
+                const apartado=punto?(inc.apartado+" · "+punto[1]):(inc.apartado||"Apartado no especificado");
+                const texto=wrap("Incidencia "+(i+1)+" — "+apartado+"\n"+(inc.comentario||"Sin descripción"),CW-4,6.5);
+                const fotosInc=(inc.fotografias||[]).filter(f=>f.dataUrl);
+                ensure(Math.max(18,texto.length*3+8));doc.setFont(FUENTE,"bold");doc.setFontSize(6.5);doc.text(texto,M+2,y+3);y+=texto.length*3+5;
+                fotosInc.forEach((foto,j)=>{ensure(58);try{const pr=doc.getImageProperties(foto.dataUrl),ratio=pr.width/pr.height;let w=75,h=w/ratio;if(h>48){h=48;w=h*ratio;}doc.addImage(foto.dataUrl,undefined,M+2,y,w,h,undefined,"FAST");y+=h+4;}catch(e){doc.setFont(FUENTE,"normal");doc.text("Fotografía no disponible",M+2,y);y+=5;}});
+                y+=3;
+            });
+        }
+        // Fotos generales, si existen, en páginas posteriores manteniendo el informe independiente.
         const fotos=auditoriaCampo.fotografias.filter(f=>f.dataUrl);
         if(fotos.length){nueva();doc.setFont(FUENTE,"bold");doc.setFontSize(11);doc.text("FOTOGRAFÍAS DE CAMPO",M,y);y+=8;for(let i=0;i<fotos.length;i++){ensure(75);doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("Fotografía "+(i+1),M,y);y+=4;try{const p=doc.getImageProperties(fotos[i].dataUrl),ratio=p.width/p.height;let w=92,h=w/ratio;if(h>62){h=62;w=h*ratio;}doc.addImage(fotos[i].dataUrl,undefined,M,y,w,h,undefined,"FAST");if(fotos[i].descripcion){doc.setFont(FUENTE,"normal");doc.setFontSize(6.5);doc.text(wrap(fotos[i].descripcion,92,6.5).slice(0,3),M+w+4,y+5);}y+=Math.max(66,h+8);}catch(e){y+=8;}}}
         // Firmas: se mantienen en la segunda página, como en el documento original.
