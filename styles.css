@@ -430,3 +430,37 @@ textarea:focus {
 .extintor-control .vehicle-incident-detail {
     border-left-color: #dc2626;
 }
+
+/* Dashboard general e histórico de auditorías */
+#globalOverview {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    margin: 22px 0;
+}
+#globalOverview .global-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+    padding: 17px 19px;
+    background: #fff;
+    border: 1px solid #dfe4e8;
+    border-left: 4px solid #17365d;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.05);
+}
+#globalOverview .global-stat-label { color: #596675; font-size: 13px; font-weight: 600; }
+#globalOverview .global-stat strong { color: #17365d; font-size: 22px; }
+.global-history { margin: 0 0 22px; }
+.global-history-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.global-history-heading h3 { margin: 0; color: #17365d; }
+.global-history-heading small, .global-history-empty { color: #687582; }
+.global-history-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid #e5e7eb; }
+.global-history-main, .global-history-detail { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.global-history-main strong { overflow-wrap: anywhere; }
+.global-history-main span, .global-history-detail { color: #596675; font-size: 13px; }
+.global-history-detail { text-align: right; }
+.global-history-empty { margin: 10px 0 0; font-size: 14px; }
+@media (max-width: 850px) { #globalOverview { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { #globalOverview { grid-template-columns: 1fr; } .global-history-row { align-items: flex-start; flex-direction: column; } .global-history-detail { text-align: left; } }

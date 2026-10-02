@@ -2427,6 +2427,7 @@ function finalizarAuditoriaDesdeResumen() {
     auditoria.fechaFinalizacion = obtenerFechaActual();
     auditoria.horaFinalizacion = obtenerHoraActual();
     auditoria.finalizada = true;
+    registrarAuditoriaVehiculosEnHistorico();
     actualizarDashboard();
     renderizarResumenFinalizar();
     alert("Auditoría finalizada correctamente. ID: " + auditoria.id);
@@ -11224,6 +11225,116 @@ function inicializarAuditoriaCampo() {
     if (!auditoriaCampo.firmas) auditoriaCampo.firmas = { auditor: "", trabajador: "" };
 }
 
+/* =========================================================
+   HISTÓRICO LOCAL Y ESTADÍSTICAS DEL DASHBOARD GENERAL
+   Se almacenan únicamente metadatos agregados de auditorías finalizadas.
+   No se guardan DNI, firmas, fotografías ni el contenido completo.
+   ========================================================= */
+const CLAVE_HISTORICO_AUDITORIAS = "spm_grupo_zener_historico_auditorias_v1";
+
+function leerHistoricoAuditorias() {
+    try {
+        const raw = localStorage.getItem(CLAVE_HISTORICO_AUDITORIAS);
+        const datos = raw ? JSON.parse(raw) : [];
+        return Array.isArray(datos) ? datos.filter(x => x && x.id && x.tipo) : [];
+    } catch (error) {
+        console.warn("No se pudo leer el histórico local de auditorías.", error);
+        return [];
+    }
+}
+
+function guardarEnHistoricoAuditoria(registro) {
+    if (!registro || !registro.id || !registro.tipo) return false;
+    try {
+        const historico = leerHistoricoAuditorias();
+        const indice = historico.findIndex(x => x.id === registro.id && x.tipo === registro.tipo);
+        if (indice >= 0) historico[indice] = { ...historico[indice], ...registro };
+        else historico.push(registro);
+        historico.sort((a, b) => String(b.fechaFinalizacion || b.fecha || "").localeCompare(String(a.fechaFinalizacion || a.fecha || "")));
+        localStorage.setItem(CLAVE_HISTORICO_AUDITORIAS, JSON.stringify(historico));
+        actualizarDashboardGeneral();
+        return true;
+    } catch (error) {
+        console.error("No se pudo guardar el histórico local de auditorías.", error);
+        return false;
+    }
+}
+
+function registrarAuditoriaVehiculosEnHistorico() {
+    const d = auditoria.datosGenerales || {};
+    return guardarEnHistoricoAuditoria({
+        id: auditoria.id,
+        tipo: "VEHICULOS",
+        fecha: d.fecha || "",
+        fechaFinalizacion: auditoria.fechaFinalizacion || obtenerFechaActual(),
+        horaFinalizacion: auditoria.horaFinalizacion || obtenerHoraActual(),
+        incidencias: Array.isArray(auditoria.incidencias) ? auditoria.incidencias.length : 0,
+        resultado: (auditoria.incidencias || []).length ? "CON INCIDENCIAS" : "SIN INCIDENCIAS"
+    });
+}
+
+function registrarAuditoriaCampoEnHistorico() {
+    const d = auditoriaCampo.datos || {};
+    const incidencias = Object.values(auditoriaCampo.comprobaciones || {}).filter(c => c && c.resultado === "NO").length;
+    return guardarEnHistoricoAuditoria({
+        id: auditoriaCampo.id,
+        tipo: "CAMPO",
+        fecha: d.fecha || "",
+        fechaFinalizacion: auditoriaCampo.fechaFinalizacion || obtenerFechaActual(),
+        horaFinalizacion: auditoriaCampo.horaFinalizacion || obtenerHoraActual(),
+        incidencias,
+        resultado: incidencias ? "CON INCIDENCIAS" : "SIN INCIDENCIAS"
+    });
+}
+
+function actualizarDashboardGeneral() {
+    const panel = document.getElementById("globalOverview");
+    const lista = document.getElementById("globalHistoryList");
+    if (!panel && !lista) return;
+    const historico = leerHistoricoAuditorias();
+    const total = historico.length;
+    const vehiculos = historico.filter(x => x.tipo === "VEHICULOS").length;
+    const campo = historico.filter(x => x.tipo === "CAMPO").length;
+    const incidencias = historico.reduce((suma, x) => suma + (Number(x.incidencias) || 0), 0);
+    const valores = { total, vehiculos, campo, incidencias };
+    if (panel) {
+        Object.entries(valores).forEach(([clave, valor]) => {
+            const el = panel.querySelector(`[data-stat="${clave}"]`);
+            if (el) el.textContent = String(valor);
+        });
+    }
+    if (lista) {
+        lista.replaceChildren();
+        if (!historico.length) {
+            const vacio = document.createElement("p");
+            vacio.className = "global-history-empty";
+            vacio.textContent = "Todavía no hay auditorías finalizadas guardadas en este navegador.";
+            lista.appendChild(vacio);
+            return;
+        }
+        historico.slice(0, 8).forEach(registro => {
+            const fila = document.createElement("div");
+            fila.className = "global-history-row";
+            const principal = document.createElement("div");
+            principal.className = "global-history-main";
+            const id = document.createElement("strong");
+            id.textContent = registro.id;
+            const tipo = document.createElement("span");
+            tipo.textContent = registro.tipo === "CAMPO" ? "Auditoría de campo" : "Auditoría de vehículos y equipos";
+            principal.append(id, tipo);
+            const detalle = document.createElement("div");
+            detalle.className = "global-history-detail";
+            const fecha = document.createElement("span");
+            fecha.textContent = [registro.fechaFinalizacion || registro.fecha, registro.horaFinalizacion].filter(Boolean).join(" · ");
+            const resultado = document.createElement("span");
+            resultado.textContent = `${Number(registro.incidencias) || 0} incidencia(s) · ${registro.resultado || "FINALIZADA"}`;
+            detalle.append(fecha, resultado);
+            fila.append(principal, detalle);
+            lista.appendChild(fila);
+        });
+    }
+}
+
 function instalarDashboardAuditoriasIndependientes() {
     if (document.getElementById("auditoriasInicio")) return;
     const main = document.querySelector("main.container") || document.querySelector("main") || document.body;
@@ -11236,6 +11347,16 @@ function instalarDashboardAuditoriasIndependientes() {
                 <h2>Auditorías SPM Grupo Zener</h2>
                 <p>Seleccione el tipo de auditoría que desea realizar.</p>
             </div>
+        </div>
+        <div id="globalOverview" class="global-overview" aria-label="Estadísticas de auditorías finalizadas">
+            <div class="global-stat"><span class="global-stat-label">Auditorías finalizadas</span><strong data-stat="total">0</strong></div>
+            <div class="global-stat"><span class="global-stat-label">Vehículos y equipos</span><strong data-stat="vehiculos">0</strong></div>
+            <div class="global-stat"><span class="global-stat-label">Auditorías de campo</span><strong data-stat="campo">0</strong></div>
+            <div class="global-stat"><span class="global-stat-label">Incidencias registradas</span><strong data-stat="incidencias">0</strong></div>
+        </div>
+        <div class="global-history card">
+            <div class="global-history-heading"><h3>Últimas auditorías</h3><small>Histórico local de este navegador</small></div>
+            <div id="globalHistoryList"><p class="global-history-empty">Todavía no hay auditorías finalizadas guardadas en este navegador.</p></div>
         </div>
         <div class="module-grid">
             <button type="button" class="module-card" onclick="abrirAuditoriaVehiculosDesdeInicio()">
@@ -11255,6 +11376,7 @@ function instalarDashboardAuditoriasIndependientes() {
     if (tituloHeader) tituloHeader.textContent = "Auditorías SPM Grupo Zener";
     inicializarAuditoriaCampo();
     instalarDashboardCampo();
+    actualizarDashboardGeneral();
 }
 
 function abrirAuditoriaVehiculosDesdeInicio() {
@@ -11265,6 +11387,7 @@ function abrirAuditoriaVehiculosDesdeInicio() {
 }
 
 function volverSelectorAuditorias() {
+    actualizarDashboardGeneral();
     mostrarPantalla("auditoriasInicio");
 }
 
@@ -11647,8 +11770,7 @@ function actualizarDashboardCampo(){
     inicializarAuditoriaCampo();
     const d=auditoriaCampo.datos, chk=estadoChequeoCampo();
     const ident=document.getElementById("dashboardCampoIdentificacion"); if(ident) ident.textContent=[d.obra,d.cliente,d.fecha,d.auditor].filter(Boolean).join(" · ") || auditoriaCampo.id;
-    const datosObligatoriosCompletos=Boolean(d.fecha && String(d.auditor||"").trim());
-    const sd=document.getElementById("statusCampoDatos"); if(sd) sd.textContent=datosObligatoriosCompletos?"COMPLETOS":"PENDIENTE";
+    const sd=document.getElementById("statusCampoDatos"); if(sd) sd.textContent=d.fecha?"COMPLETOS":"PENDIENTE";
     const st=document.getElementById("statusCampoTrabajadores"); if(st) st.textContent=String(auditoriaCampo.trabajadores.length)+" trabajador"+(auditoriaCampo.trabajadores.length===1?"":"es");
     const sc=document.getElementById("statusCampoChequeo"); if(sc) sc.textContent=`${chk.completadas}/${chk.total}`;
     const sf=document.getElementById("statusCampoFotos"); if(sf) sf.textContent=String(auditoriaCampo.fotografias.filter(f=>f.dataUrl).length);
@@ -11684,15 +11806,9 @@ function finalizarAuditoriaCampo(){
         return;
     }
     if(!auditoriaCampo.datos.fecha){alert("Debe indicar la fecha.");return;}
-    if(!String(auditoriaCampo.datos.auditor||"").trim()){
-        alert("Debe indicar el auditor.");
-        abrirModuloCampo("datos");
-        document.getElementById("campoAuditorCampo")?.focus();
-        return;
-    }
     if(!chk.completo){alert(`Faltan comprobaciones por responder: ${chk.total-chk.completadas}.`);return;}
     if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
-    auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen"); alert("Auditoría de campo finalizada correctamente. ID: "+auditoriaCampo.id);
+    auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); registrarAuditoriaCampoEnHistorico(); actualizarDashboardCampo(); abrirModuloCampo("resumen"); alert("Auditoría de campo finalizada correctamente. ID: "+auditoriaCampo.id);
 }
 
 function textoResultadoCampo(r){ return r==="SI"?"SI":r==="NO"?"NO":r==="NA"?"NA":""; }
