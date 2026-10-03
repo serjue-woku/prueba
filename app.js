@@ -2429,7 +2429,6 @@ function finalizarAuditoriaDesdeResumen() {
     auditoria.finalizada = true;
     actualizarDashboard();
     renderizarResumenFinalizar();
-    sincronizarAuditoriaConGoogle("VEHICULOS_EQUIPOS", auditoria);
     alert("Auditoría finalizada correctamente. ID: " + auditoria.id);
 }
 
@@ -11201,6 +11200,7 @@ let auditoriaCampo = {
     trabajadores: [],
     comprobaciones: {},
     observaciones: "",
+    incidencias: [],
     fotografias: [],
     firmas: { auditor: "", trabajador: "" },
     fechaFinalizacion: "",
@@ -11222,6 +11222,7 @@ function inicializarAuditoriaCampo() {
     });
     if (!Array.isArray(auditoriaCampo.trabajadores)) auditoriaCampo.trabajadores = [];
     if (!Array.isArray(auditoriaCampo.fotografias)) auditoriaCampo.fotografias = [];
+    if (!Array.isArray(auditoriaCampo.incidencias)) auditoriaCampo.incidencias = [];
     if (!auditoriaCampo.firmas) auditoriaCampo.firmas = { auditor: "", trabajador: "" };
 }
 
@@ -11632,8 +11633,35 @@ function configurarFirmasCampo() {
 }
 function limpiarFirmaCampo(clave){ auditoriaCampo.firmas[clave]=""; abrirModuloCampo("observaciones"); }
 function guardarObservacionesCampo(){ auditoriaCampo.observaciones=document.getElementById("campoObservaciones")?.value||""; actualizarDashboardCampo(); }
+function opcionesIncidenciaCampo(){
+    const opts=[];
+    Object.entries(ESTRUCTURA_AUDITORIA_CAMPO).forEach(([clave,sec])=>(sec.items||[]).forEach(([id,txt])=>opts.push({value:clave+"|"+id,label:sec.titulo+" — "+id+" "+txt})));
+    return opts;
+}
+function renderIncidenciasCampo(){
+    const lista=auditoriaCampo.incidencias||[];
+    const opciones=opcionesIncidenciaCampo().map(o=>`<option value="${campoEsc(o.value)}">${campoEsc(o.label)}</option>`).join("");
+    return `<div class="card"><h3>Incidencias registradas (${lista.length})</h3>
+      ${lista.length?lista.map((inc,i)=>`<div class="incidencia-campo-item" style="border:1px solid #d5d5d5;border-radius:8px;padding:10px;margin:8px 0"><strong>${i+1}. ${campoEsc(inc.apartadoTexto||inc.apartado||"")}</strong><p style="white-space:pre-wrap">${campoEsc(inc.descripcion||"")}</p>${(inc.fotografias||[]).map((f,j)=>`<img src="${f.dataUrl}" alt="Foto incidencia ${i+1}" style="width:90px;height:70px;object-fit:cover;margin:3px;border-radius:4px">`).join("")}<div><button type="button" class="btn-secondary" onclick="eliminarIncidenciaCampo(${i})">Eliminar incidencia</button></div></div>`).join(""):'<p>No hay incidencias añadidas.</p>'}
+      <h4>Añadir incidencia</h4><div class="field"><label for="incidenciaCampoApartado">Punto del chequeo de seguridad</label><select id="incidenciaCampoApartado"><option value="">Seleccionar apartado…</option>${opciones}</select></div>
+      <div class="field"><label for="incidenciaCampoDescripcion">Descripción / comentarios</label><textarea id="incidenciaCampoDescripcion" rows="3" placeholder="Describe la incidencia detectada"></textarea></div>
+      <div class="field"><label for="incidenciaCampoFotos">Fotografías de la incidencia</label><input id="incidenciaCampoFotos" type="file" accept="image/*" capture="environment" multiple onchange="prepararFotosIncidenciaCampo(this)"><div id="previewFotosIncidenciaCampo" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div></div>
+      <button type="button" class="btn-primary" onclick="anadirIncidenciaCampo()">Añadir incidencia</button></div>`;
+}
+let fotosPendientesIncidenciaCampo=[];
+function prepararFotosIncidenciaCampo(input){
+    fotosPendientesIncidenciaCampo=[];const files=Array.from(input?.files||[]);const preview=document.getElementById("previewFotosIncidenciaCampo");if(preview)preview.innerHTML="";
+    files.forEach(file=>{if(!file.type.startsWith("image/"))return;const reader=new FileReader();reader.onload=()=>{const dataUrl=String(reader.result||"");fotosPendientesIncidenciaCampo.push({nombre:file.name,dataUrl});if(preview){const img=document.createElement("img");img.src=dataUrl;img.style="width:76px;height:60px;object-fit:cover;border-radius:4px";preview.appendChild(img);}};reader.readAsDataURL(file);});
+}
+function anadirIncidenciaCampo(){
+    const select=document.getElementById("incidenciaCampoApartado"),descripcion=document.getElementById("incidenciaCampoDescripcion");const value=select?.value||"";const texto=(descripcion?.value||"").trim();
+    if(!value){alert("Selecciona el apartado del chequeo relacionado con la incidencia.");return;}if(!texto){alert("Describe la incidencia antes de añadirla.");return;}
+    const [seccion,id]=value.split("|");const sec=ESTRUCTURA_AUDITORIA_CAMPO[seccion];const item=(sec?.items||[]).find(x=>x[0]===id);auditoriaCampo.incidencias.push({id:"IC-"+Date.now()+"-"+Math.floor(Math.random()*1000),seccion,apartado:id,apartadoTexto:(sec?.titulo||seccion)+" — "+id+" "+(item?.[1]||""),descripcion:texto,fotografias:fotosPendientesIncidenciaCampo.map(f=>({...f})),fecha:new Date().toISOString(),estado:"ABIERTA"});fotosPendientesIncidenciaCampo=[];abrirModuloCampo("observaciones");
+}
+function eliminarIncidenciaCampo(indice){if(!confirm("¿Eliminar esta incidencia?"))return;auditoriaCampo.incidencias.splice(indice,1);abrirModuloCampo("observaciones");}
 function renderModuloCampoObservaciones(){
     return `<div class="card"><div class="field"><label>OBSERVACIONES</label><textarea id="campoObservaciones" style="min-height:220px" oninput="guardarObservacionesCampo()">${campoEsc(auditoriaCampo.observaciones||"")}</textarea></div></div>
+    ${renderIncidenciasCampo()}
     <div class="card"><h3>Firma del auditor</h3><canvas id="firmaCampo_auditor" class="firma-canvas" style="width:100%;height:140px;border:1px solid #333;background:#fff;touch-action:none"></canvas><button type="button" class="btn-secondary" onclick="limpiarFirmaCampo('auditor')">Limpiar firma</button></div>
     <div class="card"><h3>Firma por los trabajadores</h3><canvas id="firmaCampo_trabajador" class="firma-canvas" style="width:100%;height:140px;border:1px solid #333;background:#fff;touch-action:none"></canvas><button type="button" class="btn-secondary" onclick="limpiarFirmaCampo('trabajador')">Limpiar firma</button></div>`;
 }
@@ -11686,7 +11714,7 @@ function finalizarAuditoriaCampo(){
     if(!auditoriaCampo.datos.fecha){alert("Debe indicar la fecha.");return;}
     if(!chk.completo){alert(`Faltan comprobaciones por responder: ${chk.total-chk.completadas}.`);return;}
     if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
-    auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen"); sincronizarAuditoriaConGoogle("CAMPO", auditoriaCampo); alert("Auditoría de campo finalizada correctamente. ID: "+auditoriaCampo.id);
+    auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen"); alert("Auditoría de campo finalizada correctamente. ID: "+auditoriaCampo.id);
 }
 
 function textoResultadoCampo(r){ return r==="SI"?"SI":r==="NO"?"NO":r==="NA"?"NA":""; }
@@ -11765,56 +11793,19 @@ function crearPdfAuditoriaCampoLocal(){
         ["ESPACIOS_CONFINADOS","RIESGO_ELECTRICO","OBRA_CIVIL"].forEach(section);
         // Observaciones
         ensure(55);doc.setFillColor(...blue);doc.rect(M,y,CW,6.5,"FD");doc.setTextColor(255,255,255);doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("OBSERVACIONES",M+CW/2,y+4.3,{align:"center"});doc.setTextColor(0,0,0);y+=6.5;doc.rect(M,y,CW,45);doc.setFont(FUENTE,"normal");doc.setFontSize(6.5);const obs=wrap(auditoriaCampo.observaciones||"",CW-4,6.5);doc.text(obs.slice(0,15),M+2,y+4);y+=49;
+        // Incidencias añadidas manualmente en Observaciones y firmas.
+        const incidenciasCampo=Array.isArray(auditoriaCampo.incidencias)?auditoriaCampo.incidencias:[];
+        if(incidenciasCampo.length){ensure(12);doc.setFillColor(...blue);doc.rect(M,y,CW,6.5,"FD");doc.setTextColor(255,255,255);doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("INCIDENCIAS REGISTRADAS",M+CW/2,y+4.3,{align:"center"});doc.setTextColor(0,0,0);y+=7;
+          incidenciasCampo.forEach((inc,i)=>{const lines=wrap((i+1)+". "+(inc.apartadoTexto||inc.apartado||"")+"\n"+(inc.descripcion||""),CW-4,6.3);const h=Math.max(12,lines.length*3+4);ensure(h+4);doc.rect(M,y,CW,h);doc.setFont(FUENTE,"normal");doc.setFontSize(6.3);doc.text(lines,M+2,y+4);y+=h+2;
+            (inc.fotografias||[]).forEach(f=>{if(!f.dataUrl)return;ensure(48);try{const prop=doc.getImageProperties(f.dataUrl);let w=55,hh=w/(prop.width/prop.height);if(hh>40){hh=40;w=hh*(prop.width/prop.height);}doc.addImage(f.dataUrl,undefined,M,y,w,hh,undefined,"FAST");y+=hh+3;}catch(e){}});
+          });y+=2;
+        }
         // Fotos, si existen, en páginas posteriores manteniendo el informe independiente.
         const fotos=auditoriaCampo.fotografias.filter(f=>f.dataUrl);
         if(fotos.length){nueva();doc.setFont(FUENTE,"bold");doc.setFontSize(11);doc.text("FOTOGRAFÍAS DE CAMPO",M,y);y+=8;for(let i=0;i<fotos.length;i++){ensure(75);doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("Fotografía "+(i+1),M,y);y+=4;try{const p=doc.getImageProperties(fotos[i].dataUrl),ratio=p.width/p.height;let w=92,h=w/ratio;if(h>62){h=62;w=h*ratio;}doc.addImage(fotos[i].dataUrl,undefined,M,y,w,h,undefined,"FAST");if(fotos[i].descripcion){doc.setFont(FUENTE,"normal");doc.setFontSize(6.5);doc.text(wrap(fotos[i].descripcion,92,6.5).slice(0,3),M+w+4,y+5);}y+=Math.max(66,h+8);}catch(e){y+=8;}}}
         // Firmas: se mantienen en la segunda página, como en el documento original.
         ensure(70);doc.setFont(FUENTE,"bold");doc.setFontSize(11);doc.text("FIRMAS",M,y);y+=8;const fw=96;doc.setFont(FUENTE,"bold");doc.setFontSize(7);doc.text("Firma del auditor",M,y);doc.text("Firma por los trabajadores",M+106,y);y+=4;const firma=(data,x)=>{if(!data)return;try{const p=doc.getImageProperties(data),r=p.width/p.height;let w=fw,h=w/r;if(h>45){h=45;w=h*r;}doc.addImage(data,undefined,x,y,w,h,undefined,"FAST");}catch(e){}};firma(auditoriaCampo.firmas.auditor,M);firma(auditoriaCampo.firmas.trabajador,M+106);doc.rect(M,y,fw,48);doc.rect(M+106,y,fw,48);y+=51;doc.setFont(FUENTE,"normal");doc.setFontSize(7);doc.text("Nombre y Apellidos: "+(auditoriaCampo.datos.auditor||""),M,y);doc.text("Nombre y Apellidos: "+(auditoriaCampo.trabajadores.map(t=>t.nombre).filter(Boolean).join(", ")||""),M+106,y);y+=5;doc.text("Cargo: "+(auditoriaCampo.datos.auditorCargo||"Auditor / SPM"),M,y);doc.text("Cargo: Trabajador/es",M+106,y);pie();return doc;
     });
-}
-
-/* =========================================================
-   SINCRONIZACIÓN GOOGLE SHEETS / DRIVE
-   Configure la URL de la aplicación web de Apps Script.
-   La sincronización se activa únicamente al finalizar.
-   ========================================================= */
-const CONFIG_GOOGLE_AUDITORIAS = {
-    endpoint: "https://script.google.com/macros/s/AKfycbylJ9W5lSuvTvE600uoNc53zkl7v4-Mn1T6pnfoyEKHguteV8ALLwOOPCRP_zFgVq9V/exec", // Pegar aquí la URL /exec de Apps Script
-    enviarAlFinalizar: true
-};
-
-async function sincronizarAuditoriaConGoogle(tipo, datos) {
-    if (!CONFIG_GOOGLE_AUDITORIAS.enviarAlFinalizar) return { omitido: true };
-    const endpoint = String(CONFIG_GOOGLE_AUDITORIAS.endpoint || "").trim();
-    if (!endpoint) {
-        console.info("Google Sheets aún no está conectado: falta configurar CONFIG_GOOGLE_AUDITORIAS.endpoint.");
-        return { configuracionPendiente: true };
-    }
-    const payload = {
-        accion: "guardarAuditoria",
-        tipo: tipo,
-        auditoria: datos,
-        enviadaEn: new Date().toISOString()
-    };
-    try {
-        const respuesta = await fetch(endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "text/plain;charset=utf-8" },
-            body: JSON.stringify(payload),
-            redirect: "follow"
-        });
-        const texto = await respuesta.text();
-        let resultado;
-        try { resultado = JSON.parse(texto); } catch (_) { resultado = { respuesta: texto }; }
-        if (!respuesta.ok || resultado.ok === false) throw new Error(resultado.error || ("HTTP " + respuesta.status));
-        console.info("Auditoría enviada a Google:", datos.id, resultado);
-        return resultado;
-    } catch (error) {
-        console.error("No se pudo sincronizar la auditoría con Google:", error);
-        // No se revierte la auditoría local: se mantiene para reintentar más adelante.
-        alert("La auditoría se ha finalizado en este dispositivo, pero no se ha podido confirmar su envío a Google Sheets.\n\nMotivo: " + (error.message || error) + "\n\nConserve el PDF y vuelva a sincronizar cuando se revise la conexión.");
-        return { ok: false, error: String(error.message || error) };
-    }
 }
 
 (function inicializarSegundoDashboard(){
