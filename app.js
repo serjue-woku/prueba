@@ -372,6 +372,7 @@ const auditoria = {
         capacidad: "",
         ubicacion: "",
         identificacion: "",
+        fechaRevisionMantenimiento: "",
         observaciones: ""
     },
 
@@ -1064,6 +1065,10 @@ function guardarDatosGenerales() {
             .datosGenerales
             .fecha =
             fechaAuditoria.value;
+
+        if (auditoria.modulos && auditoria.modulos.extintor) {
+            evaluarVigenciaMantenimientoExtintor();
+        }
     }
 
 
@@ -2723,7 +2728,8 @@ function obtenerResumenBasicoPdf() {
             agente: e.datos && e.datos.agente || "",
             capacidad: e.datos && e.datos.capacidad || "",
             ubicacion: e.datos && e.datos.ubicacion || "",
-            identificacion: e.datos && e.datos.identificacion || ""
+            identificacion: e.datos && e.datos.identificacion || "",
+            fechaRevisionMantenimiento: e.datos && e.datos.fechaRevisionMantenimiento || ""
         }
     };
 }
@@ -3108,6 +3114,7 @@ function crearPdfAuditoriaLocal() {
             linea("Capacidad", basico.extintor.capacidad);
             linea("Ubicación", basico.extintor.ubicacion);
             linea("Identificación", basico.extintor.identificacion);
+            linea("Fecha revisión/mantenimiento", basico.extintor.fechaRevisionMantenimiento);
         }
 
         const epis = obtenerResumenEpis();
@@ -5873,12 +5880,19 @@ function inicializarExtintor() {
             capacidad: "",
             ubicacion: "",
             identificacion: "",
+            fechaRevisionMantenimiento: "",
             observaciones: ""
         };
     }
 
     if (!extintor.controles) {
         extintor.controles = {};
+    }
+
+    // Compatibilidad con auditorías creadas antes de incorporar la fecha
+    // de revisión/mantenimiento del extintor.
+    if (typeof extintor.datos.fechaRevisionMantenimiento !== "string") {
+        extintor.datos.fechaRevisionMantenimiento = "";
     }
 
     const controles = [
@@ -6217,6 +6231,18 @@ function renderizarDatosExtintor() {
             </div>
 
             <div class="field">
+                <label for="extintorFechaRevisionMantenimiento">Fecha de revisión / mantenimiento</label>
+                <input
+                    type="date"
+                    id="extintorFechaRevisionMantenimiento"
+                    value="${escapeHtml(datos.fechaRevisionMantenimiento || "")}"
+                    max="${escapeHtml(auditoria.datosGenerales && auditoria.datosGenerales.fecha || "")}"
+                    onchange="actualizarDatoExtintor('fechaRevisionMantenimiento', this.value)"
+                >
+                <small class="vehicle-help">Si la fecha indicada supera en más de 12 meses la fecha de realización de la auditoría, la comprobación de vigencia se marcará automáticamente como INCORRECTO y se generará la incidencia correspondiente.</small>
+            </div>
+
+            <div class="field">
                 <label for="extintorObservaciones">Observaciones generales</label>
                 <textarea
                     id="extintorObservaciones"
@@ -6237,8 +6263,92 @@ function actualizarDatoExtintor(campo, valor) {
         extintor.datos[campo] = valor;
     }
 
+    // La fecha de revisión/mantenimiento determina automáticamente la vigencia.
+    if (campo === "fechaRevisionMantenimiento") {
+        evaluarVigenciaMantenimientoExtintor();
+    }
+
     extintor.estado = "EN_CURSO";
     actualizarDashboard();
+}
+
+function obtenerFechaAuditoriaExtintor() {
+    const fecha = auditoria && auditoria.datosGenerales && auditoria.datosGenerales.fecha;
+    if (!fecha) return null;
+    const partes = String(fecha).split("-").map(Number);
+    if (partes.length !== 3 || partes.some(n => !Number.isFinite(n))) return null;
+    const d = new Date(partes[0], partes[1] - 1, partes[2]);
+    d.setHours(0, 0, 0, 0);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function obtenerFechaMantenimientoExtintor() {
+    const fecha = auditoria && auditoria.modulos && auditoria.modulos.extintor &&
+        auditoria.modulos.extintor.datos && auditoria.modulos.extintor.datos.fechaRevisionMantenimiento;
+    if (!fecha) return null;
+    const partes = String(fecha).split("-").map(Number);
+    if (partes.length !== 3 || partes.some(n => !Number.isFinite(n))) return null;
+    const d = new Date(partes[0], partes[1] - 1, partes[2]);
+    d.setHours(0, 0, 0, 0);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function mantenimientoExtintorCaducadoMasDe12Meses() {
+    const fechaAuditoria = obtenerFechaAuditoriaExtintor();
+    const fechaMantenimiento = obtenerFechaMantenimientoExtintor();
+    if (!fechaAuditoria || !fechaMantenimiento) return false;
+
+    // Se considera caducado cuando ha transcurrido MÁS de un año completo
+    // desde la fecha de mantenimiento hasta la fecha de la auditoría.
+    const limite = new Date(fechaAuditoria.getTime());
+    limite.setFullYear(limite.getFullYear() - 1);
+    return fechaMantenimiento < limite;
+}
+
+function evaluarVigenciaMantenimientoExtintor() {
+    const extintor = auditoria && auditoria.modulos && auditoria.modulos.extintor;
+    if (!extintor) return;
+    inicializarExtintor();
+
+    const control = extintor.controles.mantenimientoVigente;
+    if (!control) return;
+
+    const fechaIndicada = !!(extintor.datos && extintor.datos.fechaRevisionMantenimiento);
+    const caducado = fechaIndicada && mantenimientoExtintorCaducadoMasDe12Meses();
+
+    if (caducado) {
+        const descripcion = "Extintor con fecha de mantenimiento caducada superior a 12 meses o etiqueta de revisión de mantenimiento ilegible";
+        const medida = "pasar revisión de mantenimiento o sustituir extintor";
+
+        control.resultado = "INCORRECTO";
+        control.descripcion = descripcion;
+        control.medida = medida;
+        control.observaciones = "Incidencia generada automáticamente al comprobar la fecha de revisión/mantenimiento del extintor.";
+        crearIncidenciaExtintor("mantenimientoVigente");
+
+        const incidencia = (auditoria.incidencias || []).find(i => i.id === "EXTINTOR_mantenimientoVigente");
+        if (incidencia) {
+            incidencia.origen = "EXTINTOR_MANTENIMIENTO_FECHA";
+            incidencia.descripcion = descripcion;
+            incidencia.medida = medida;
+            incidencia.observaciones = control.observaciones;
+            incidencia.resultado = "INCORRECTO";
+            incidencia.estado = "ABIERTA";
+        }
+    } else if (fechaIndicada) {
+        // La fecha indicada es vigente: si la incidencia fue generada
+        // exclusivamente por esta regla automática, se elimina y el control
+        // vuelve a CORRECTO.
+        const incidencia = (auditoria.incidencias || []).find(i => i.id === "EXTINTOR_mantenimientoVigente");
+        const incidenciaAutomatica = incidencia && String(incidencia.origen || "") === "EXTINTOR_MANTENIMIENTO_FECHA";
+        if (incidenciaAutomatica || (incidencia && incidencia.descripcion === "Extintor con fecha de mantenimiento caducada superior a 12 meses o etiqueta de revisión de mantenimiento ilegible")) {
+            eliminarIncidenciaExtintor("mantenimientoVigente");
+            control.resultado = "CORRECTO";
+            control.descripcion = "";
+            control.medida = "";
+            control.observaciones = "";
+        }
+    }
 }
 
 function crearControlExtintor(nombre, texto) {
@@ -6478,6 +6588,8 @@ function crearIncidenciaExtintor(nombre) {
 
             id: id,
 
+            origen: nombre === "mantenimientoVigente" && mantenimientoExtintorCaducadoMasDe12Meses() ? "EXTINTOR_MANTENIMIENTO_FECHA" : "EXTINTOR",
+
             modulo: "EXTINTOR",
 
             controlClave: nombre,
@@ -6701,6 +6813,10 @@ function guardarExtintor() {
         return;
     }
 
+
+    // Comprobar automáticamente la vigencia de la revisión/mantenimiento
+    // antes de validar y guardar el módulo.
+    evaluarVigenciaMantenimientoExtintor();
 
     /*
      * Todos los controles deben tener resultado
