@@ -11818,8 +11818,21 @@ function renderModuloCampoResumen(){
     <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" class="primary-button" onclick="finalizarAuditoriaCampo()">FINALIZAR AUDITORÍA DE CAMPO</button><button type="button" class="secondary-button" onclick="generarPdfAuditoriaCampoLocal()">GENERAR PDF DE PRUEBA</button>${auditoriaCampo.estado==="FINALIZADA"?`<button type="button" class="secondary-button" onclick="verPdfAuditoriaCampoLocal()">VER PDF</button>`:""}</div>`;
 }
 
+function normalizarEmpresaAuditoriaCampo(){
+    if (!auditoriaCampo || !auditoriaCampo.datos) return "";
+    const d = auditoriaCampo.datos;
+    const empresa = String(d.empresa || d.idEmpresa || d.nombreEmpresa || "").replace(/\s+/g, " ").trim();
+    d.empresa = empresa;
+    // Compatibilidad con versiones antiguas: si el nombre se hubiera
+    // introducido accidentalmente en idEmpresa, lo trasladamos al campo
+    // canónico antes de guardar la auditoría.
+    if (empresa) d.idEmpresa = empresa;
+    return empresa;
+}
+
 async function finalizarAuditoriaCampo(){
     guardarDatosCampoDesdeFormulario();
+    normalizarEmpresaAuditoriaCampo();
     const chk=estadoChequeoCampo();
     const dniPrincipal=normalizarDniNie(auditoriaCampo.datos.dniNie || "");
     if(dniPrincipal && !validarDniNie(dniPrincipal)){alert("El DNI/NIE del trabajador principal no es válido. Compruebe el número y la letra.");abrirModuloCampo("datos");document.getElementById("campoDniNie")?.focus();return;}
