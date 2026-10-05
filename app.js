@@ -13,14 +13,36 @@ const APP_AUDITORIAS_GAS_URL = "https://script.google.com/macros/s/AKfycbylJ9W5l
 const APP_AUDITORIAS_SHEET_ID = "1Jt7bni7N9xy-rbTtaXC2F1TF12GDOkR_Jean8h7TE_o";
 
 async function appGasPost(payload) {
+    const body = new URLSearchParams();
+    body.set("payload", JSON.stringify(payload || {}));
     const r = await fetch(APP_AUDITORIAS_GAS_URL, {
         method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload)
+        body
     });
     const text = await r.text();
     let data;
-    try { data = JSON.parse(text); } catch (_) { throw new Error("Respuesta no válida de Google Apps Script: " + text.slice(0, 300)); }
+    try { data = JSON.parse(text); } catch (_) {
+        const looksHtml = /^\s*<!doctype html|^\s*<html/i.test(text);
+        throw new Error(looksHtml
+            ? "Google Apps Script ha devuelto una página HTML en lugar de JSON. La petición POST no está llegando al doPost() de la versión desplegada. Actualiza el despliegue a una nueva versión y vuelve a probar."
+            : "Respuesta no válida de Google Apps Script: " + text.slice(0, 300));
+    }
+    if (!data.ok) throw new Error(data.error || "Google Apps Script devolvió un error.");
+    return data;
+}
+
+async function appGasGet(payload) {
+    const params = new URLSearchParams(payload || {});
+    const url = APP_AUDITORIAS_GAS_URL + (APP_AUDITORIAS_GAS_URL.includes("?") ? "&" : "?") + params.toString();
+    const r = await fetch(url, { method: "GET", cache: "no-store" });
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch (_) {
+        const looksHtml = /^\s*<!doctype html|^\s*<html/i.test(text);
+        throw new Error(looksHtml
+            ? "Google Apps Script ha devuelto HTML en la consulta GET de estadísticas. Comprueba la versión desplegada."
+            : "Respuesta no válida de Google Apps Script: " + text.slice(0, 300));
+    }
     if (!data.ok) throw new Error(data.error || "Google Apps Script devolvió un error.");
     return data;
 }
@@ -40,7 +62,21 @@ async function guardarPdfEnDrive(blob, auditoriaId, tipo, nombre) {
 }
 
 async function cargarEstadisticasEmpresas() {
-    return appGasPost({ accion: "obtenerEstadisticas" });
+    return appGasGet({ accion: "obtenerEstadisticas" });
+}
+
+async function diagnosticoGoogleAppsScript() {
+    const resultado = { conexion: "PENDIENTE", estadisticas: "PENDIENTE", guardado: "NO PROBADO", fotografias: "NO PROBADO", pdf: "NO PROBADO" };
+    try {
+        await appGasGet({ accion: "comprobarConexion" });
+        resultado.conexion = "OK";
+    } catch (e) { resultado.conexion = "ERROR: " + (e.message || e); }
+    try {
+        const d = await appGasGet({ accion: "obtenerEstadisticas" });
+        resultado.estadisticas = d && d.ok ? "OK" : "ERROR";
+    } catch (e) { resultado.estadisticas = "ERROR: " + (e.message || e); }
+    console.table(resultado);
+    return resultado;
 }
 
 function escStats(v) { return escaparValorResumen(v == null ? "" : String(v)); }
