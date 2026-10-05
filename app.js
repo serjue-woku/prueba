@@ -13,21 +13,35 @@ const APP_AUDITORIAS_GAS_URL = "https://script.google.com/macros/s/AKfycbylJ9W5l
 const APP_AUDITORIAS_SHEET_ID = "1Jt7bni7N9xy-rbTtaXC2F1TF12GDOkR_Jean8h7TE_o";
 
 async function appGasPost(payload) {
+    const accion = String((payload && payload.accion) || "POST");
     const body = new URLSearchParams();
     body.set("payload", JSON.stringify(payload || {}));
-    const r = await fetch(APP_AUDITORIAS_GAS_URL, {
-        method: "POST",
-        body
-    });
+    let r;
+    try {
+        r = await fetch(APP_AUDITORIAS_GAS_URL, {
+            method: "POST",
+            body,
+            redirect: "follow",
+            cache: "no-store"
+        });
+    } catch (err) {
+        throw new Error("No se pudo realizar la petición a Google Apps Script (" + accion + "): " + (err.message || err));
+    }
+
     const text = await r.text();
     let data;
     try { data = JSON.parse(text); } catch (_) {
-        const looksHtml = /^\s*<!doctype html|^\s*<html/i.test(text);
-        throw new Error(looksHtml
-            ? "Google Apps Script ha devuelto una página HTML en lugar de JSON. La petición POST no está llegando al doPost() de la versión desplegada. Actualiza el despliegue a una nueva versión y vuelve a probar."
-            : "Respuesta no válida de Google Apps Script: " + text.slice(0, 300));
+        const preview = String(text || "").replace(/\s+/g, " ").slice(0, 500);
+        const looksHtml = /<html|<!doctype html/i.test(text);
+        if (looksHtml) {
+            throw new Error(
+                "Google Apps Script respondió con HTML en la acción '" + accion + "' (HTTP " + r.status + "). " +
+                "La auditoría puede haberse guardado antes de producirse este error. Compruebe el despliegue /exec. Respuesta: " + preview
+            );
+        }
+        throw new Error("Respuesta no válida de Google Apps Script en '" + accion + "' (HTTP " + r.status + "): " + preview);
     }
-    if (!data.ok) throw new Error(data.error || "Google Apps Script devolvió un error.");
+    if (!data.ok) throw new Error((data.error || "Google Apps Script devolvió un error.") + " [acción: " + accion + "]");
     return data;
 }
 
@@ -11842,8 +11856,27 @@ async function finalizarAuditoriaCampo(){
     if(!chk.completo){alert(`Faltan comprobaciones por responder: ${chk.total-chk.completadas}.`);return;}
     if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
     auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen");
-    try { const guardado=await appGasPost({accion:"guardarAuditoria",tipo:"CAMPO",auditoria:auditoriaCampo}); const pdfCampo=await obtenerBlobPdfAuditoriaCampoLocal(); await guardarPdfEnDrive(pdfCampo.blob,auditoriaCampo.id,"CAMPO",(auditoriaCampo.id||"AUDITORIA_CAMPO")+"_Chequeo_Condiciones_Seguridad_ZENER.pdf"); alert("Auditoría de campo finalizada, guardada en Google Sheets/Drive y PDF enviado a Informes. ID: "+auditoriaCampo.id); abrirDashboardEstadisticas(); }
-    catch(e){ alert("La auditoría de campo ha quedado FINALIZADA, pero no se pudo sincronizar con Google Sheets/Drive.\n\n"+(e.message||e)); }
+    let auditoriaGuardada = false;
+    try {
+        await appGasPost({accion:"guardarAuditoria",tipo:"CAMPO",auditoria:auditoriaCampo});
+        auditoriaGuardada = true;
+    } catch(e) {
+        alert("La auditoría ha quedado FINALIZADA, pero no se pudo guardar la auditoría en Google Sheets/Drive.\n\n"+(e.message||e));
+        return;
+    }
+
+    try {
+        const pdfCampo=await obtenerBlobPdfAuditoriaCampoLocal();
+        await guardarPdfEnDrive(pdfCampo.blob,auditoriaCampo.id,"CAMPO",(auditoriaCampo.id||"AUDITORIA_CAMPO")+"_Chequeo_Condiciones_Seguridad_ZENER.pdf");
+        alert("Auditoría de campo guardada correctamente en Google Sheets y Drive. PDF enviado a Informes. ID: "+auditoriaCampo.id);
+    } catch(e) {
+        if(auditoriaGuardada){
+            alert("La auditoría ha quedado guardada correctamente en Google Sheets y las fotografías se han sincronizado, pero el PDF no pudo confirmarse en la carpeta Informes.\n\n"+(e.message||e)+"\n\nLa auditoría NO se ha perdido.");
+        } else {
+            alert("No se pudo completar la sincronización.\n\n"+(e.message||e));
+        }
+    }
+    abrirDashboardEstadisticas();
 }
 
 function textoResultadoCampo(r){ return r==="SI"?"SI":r==="NO"?"NO":r==="NA"?"NA":""; }
