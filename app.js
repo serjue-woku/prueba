@@ -6,97 +6,80 @@
 
 
 /* =========================================================
-   CONFIGURACIÓN DE INTEGRACIÓN GOOGLE
-   ========================================================= */
-const CONFIG_GOOGLE_AUDITORIAS = {
-    WEB_APP_URL: "https://script.google.com/macros/s/AKfycbylJ9W5lSuvTvE600uoNc53zkl7v4-Mn1T6pnfoyEKHguteV8ALLwOOPCRP_zFgVq9V/exec",
-    SPREADSHEET_ID: "1Jt7bni7N9xy-rbTtaXC2F1TF12GDOkR_Jean8h7TE_o",
-    FOLDER_FOTOGRAFIAS_ID: "1OKmawYdY4cksNyuPgdDQrypSIWWDe_6g",
-    FOLDER_INFORMES_ID: "1A5Co2c3Vme5SZGx25jIFXN5H6XQNWPun"
-};
-
-function _googleApiDisponible() {
-    return !!(CONFIG_GOOGLE_AUDITORIAS.WEB_APP_URL && CONFIG_GOOGLE_AUDITORIAS.WEB_APP_URL.indexOf("script.google.com/macros/s/") !== -1);
-}
-
-async function enviarDatosGoogleAppsScript(payload) {
-    if (!_googleApiDisponible()) throw new Error("No está configurada la URL de Google Apps Script.");
-    const respuesta = await fetch(CONFIG_GOOGLE_AUDITORIAS.WEB_APP_URL, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=UTF-8" },
-        body: JSON.stringify(payload)
-    });
-    // Apps Script responde sin acceso CORS en el navegador. no-cors confirma que
-    // el navegador ha entregado la petición; el servidor registra el resultado.
-    return { ok: true, respuesta: respuesta.type || "opaque" };
-}
-
-async function guardarAuditoriaEnGoogle(tipo) {
-    const esCampo = tipo === "CAMPO";
-    const objeto = esCampo ? auditoriaCampo : auditoria;
-    const payload = {
-        accion: "guardarAuditoria",
-        tipo: esCampo ? "CAMPO" : "VEHICULOS_EQUIPOS",
-        auditoria: objeto,
-        cliente: {
-            spreadsheetId: CONFIG_GOOGLE_AUDITORIAS.SPREADSHEET_ID,
-            carpetaFotografiasId: CONFIG_GOOGLE_AUDITORIAS.FOLDER_FOTOGRAFIAS_ID,
-            carpetaInformesId: CONFIG_GOOGLE_AUDITORIAS.FOLDER_INFORMES_ID
-        }
-    };
-    return enviarDatosGoogleAppsScript(payload);
-}
-
-function blobADataUrl(blob) {
-    return new Promise((resolve, reject) => {
-        try {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result || ""));
-            reader.onerror = () => reject(reader.error || new Error("No se pudo convertir el PDF."));
-            reader.readAsDataURL(blob);
-        } catch (e) { reject(e); }
-    });
-}
-
-async function guardarPdfEnGoogleDrive(blob, nombre, tipo) {
-    if (!blob) throw new Error("No se recibió el PDF.");
-    const dataUrl = await blobADataUrl(blob);
-    const limite = 45 * 1024 * 1024;
-    if (dataUrl.length > limite) throw new Error("El PDF supera el límite permitido para enviarlo a Google Drive.");
-    return enviarDatosGoogleAppsScript({
-        accion: "guardarInformePdf",
-        tipo: tipo || "VEHICULOS_EQUIPOS",
-        auditoriaId: tipo === "CAMPO" ? auditoriaCampo.id : auditoria.id,
-        nombre: nombre,
-        mimeType: "application/pdf",
-        dataUrl: dataUrl,
-        cliente: { carpetaInformesId: CONFIG_GOOGLE_AUDITORIAS.FOLDER_INFORMES_ID }
-    });
-}
-
-async function guardarYDescargarPdf(blob, nombre, tipo) {
-    const url = URL.createObjectURL(blob);
-    const enlace = document.createElement("a");
-    enlace.href = url;
-    enlace.download = nombre;
-    document.body.appendChild(enlace);
-    enlace.click();
-    enlace.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 30000);
-    try {
-        await guardarPdfEnGoogleDrive(blob, nombre, tipo);
-        return true;
-    } catch (e) {
-        console.error("Error guardando PDF en Google Drive:", e);
-        alert("El PDF se ha descargado correctamente, pero no se ha podido enviar a Google Drive. Revise la conexión con Apps Script.\n\n" + (e.message || e));
-        return false;
-    }
-}
-
-/* =========================================================
    OBJETO PRINCIPAL DE LA AUDITORÍA
    ========================================================= */
+
+const APP_AUDITORIAS_GAS_URL = "https://script.google.com/macros/s/AKfycbylJ9W5lSuvTvE600uoNc53zkl7v4-Mn1T6pnfoyEKHguteV8ALLwOOPCRP_zFgVq9V/exec";
+const APP_AUDITORIAS_SHEET_ID = "1Jt7bni7N9xy-rbTtaXC2F1TF12GDOkR_Jean8h7TE_o";
+
+async function appGasPost(payload) {
+    const r = await fetch(APP_AUDITORIAS_GAS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload)
+    });
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch (_) { throw new Error("Respuesta no válida de Google Apps Script: " + text.slice(0, 300)); }
+    if (!data.ok) throw new Error(data.error || "Google Apps Script devolvió un error.");
+    return data;
+}
+
+async function blobADataUrl(blob) {
+    return await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("No se pudo convertir el PDF."));
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function guardarPdfEnDrive(blob, auditoriaId, tipo, nombre) {
+    const dataUrl = await blobADataUrl(blob);
+    return appGasPost({ accion:"guardarInformePdf", auditoriaId, tipo, nombre, mimeType:"application/pdf", base64:dataUrl });
+}
+
+async function cargarEstadisticasEmpresas() {
+    return appGasPost({ accion: "obtenerEstadisticas" });
+}
+
+function escStats(v) { return escaparValorResumen(v == null ? "" : String(v)); }
+
+function renderDashboardEstadisticas(data) {
+    const d = data || {};
+    const total = Number(d.totalAuditorias || 0);
+    const cards = [
+      ["📋", "Auditorías", total], ["🚐", "Vehículos", Number(d.vehiculos || 0)],
+      ["🏗️", "Campo", Number(d.campo || 0)], ["⚠️", "Con incidencias", Number(d.conIncidencias || 0)],
+      ["👷", "Trabajadores", Number(d.totalTrabajadores || 0)], ["🏢", "Empresas", Number(d.empresas || 0)]
+    ].map(x => `<div class="card" style="text-align:center;padding:14px"><div style="font-size:25px">${x[0]}</div><strong>${escStats(x[1])}</strong><div style="font-size:25px;font-weight:700;margin-top:5px">${x[2]}</div></div>`).join("");
+    const empresas = Array.isArray(d.porEmpresa) ? d.porEmpresa : [];
+    const provincias = Array.isArray(d.porProvincia) ? d.porProvincia : [];
+    const empresaRows = empresas.map(x => `<tr><td>${escStats(x.empresa)}</td><td>${x.auditorias}</td><td>${x.correctas}</td><td>${x.conIncidencias}</td><td>${x.trabajadores}</td><td>${escStats(x.ultima || "")}</td></tr>`).join("") || `<tr><td colspan="6">No hay empresas registradas todavía.</td></tr>`;
+    const provRows = provincias.map(x => `<tr><td>${escStats(x.provincia)}</td><td>${x.auditorias}</td><td>${x.correctas}</td><td>${x.conIncidencias}</td></tr>`).join("") || `<tr><td colspan="4">No hay datos de provincia.</td></tr>`;
+    return `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Datos consolidados desde Google Sheets.</p></div><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div>
+      <div class="module-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">${cards}</div>
+      <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3>Empresas</h3><button class="secondary-button" onclick="abrirPanelEmpresas()">Ver empresas</button></div><div class="table-responsive"><table style="width:100%;border-collapse:collapse"><thead><tr><th>Empresa</th><th>Auditorías</th><th>Correctas</th><th>Con incidencias</th><th>Trabajadores</th><th>Última</th></tr></thead><tbody>${empresaRows}</tbody></table></div></div>
+      <div class="card"><h3>Auditorías por provincia</h3><div class="table-responsive"><table style="width:100%;border-collapse:collapse"><thead><tr><th>Provincia</th><th>Auditorías</th><th>Correctas</th><th>Con incidencias</th></tr></thead><tbody>${provRows}</tbody></table></div></div>`;
+}
+
+async function abrirDashboardEstadisticas() {
+    const sec = document.getElementById("dashboardEstadisticas");
+    if (!sec) return;
+    sec.innerHTML = `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Cargando datos de Google Sheets…</p></div><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div><div class="card">Consultando datos…</div>`;
+    mostrarPantalla("dashboardEstadisticas");
+    try { const data = await cargarEstadisticasEmpresas(); sec.innerHTML = renderDashboardEstadisticas(data); }
+    catch(e) { sec.innerHTML = `<div class="card"><h3>No se pudieron cargar las estadísticas</h3><p>${escStats(e.message || e)}</p><button class="secondary-button" onclick="abrirDashboardEstadisticas()">Reintentar</button></div>`; }
+}
+
+function abrirPanelEmpresas() {
+    const sec = document.getElementById("dashboardEstadisticas");
+    if (!sec) return;
+    cargarEstadisticasEmpresas().then(d => {
+      const rows=(d.porEmpresa||[]).map(x=>`<tr><td>${escStats(x.empresa)}</td><td>${x.auditorias}</td><td>${x.trabajadores}</td><td>${x.correctas}</td><td>${x.conIncidencias}</td><td>${escStats(x.ultima||"")}</td></tr>`).join("") || `<tr><td colspan="6">No hay empresas.</td></tr>`;
+      sec.innerHTML=`<div class="dashboard-header"><div><h2>Empresas</h2><p>Catálogo generado automáticamente a partir de los formularios.</p></div><button class="secondary-button" onclick="abrirDashboardEstadisticas()">← Estadísticas</button></div><div class="card"><div class="table-responsive"><table style="width:100%;border-collapse:collapse"><thead><tr><th>Empresa</th><th>Auditorías</th><th>Trabajadores</th><th>Correctas</th><th>Con incidencias</th><th>Última auditoría</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    }).catch(e=>alert("No se pudieron cargar las empresas: "+(e.message||e)));
+}
 
 const auditoria = {
 
@@ -1111,8 +1094,6 @@ function guardarDatosGenerales() {
             .codigoPostal =
             codigoPostal.value.trim();
     }
-
-    sincronizarTrabajadorPrincipal("VEHICULOS");
 }
 
 
@@ -2511,28 +2492,21 @@ async function finalizarAuditoriaDesdeResumen() {
     const pendientes = validarAuditoriaAntesDeFinalizar();
     if (pendientes.length) {
         alert("No se puede finalizar todavía.\n\n" + pendientes.map((p, i) => (i + 1) + ". " + p).join("\n"));
-        renderizarResumenFinalizar();
-        return;
+        renderizarResumenFinalizar(); return;
     }
     auditoria.estado = "FINALIZADA";
     auditoria.fechaFinalizacion = obtenerFechaActual();
     auditoria.horaFinalizacion = obtenerHoraActual();
     auditoria.finalizada = true;
-    actualizarDashboard();
-    renderizarResumenFinalizar();
+    actualizarDashboard(); renderizarResumenFinalizar();
     try {
-        // Al finalizar se genera SIEMPRE el PDF y se envía automáticamente a Drive.
-        // Los botones "Generar PDF" y "Ver PDF" son solo herramientas manuales y
-        // ya no son necesarios para que exista el informe en Google Drive.
-        await guardarAuditoriaEnGoogle("VEHICULOS_EQUIPOS");
-        const { blob } = await obtenerBlobPdfAuditoriaLocal();
-        const nombrePdf = (auditoria.id || "AUDITORIA") + "_Auditoria_Vehiculo.pdf";
-        const resultadoPdf = await guardarPdfEnGoogleDrive(blob, nombrePdf, "VEHICULOS_EQUIPOS");
-        console.info("PDF de auditoría de vehículos enviado automáticamente a Google Drive:", resultadoPdf);
-        alert("Auditoría finalizada correctamente.\n\nSe han enviado los datos a Google Sheets y el informe PDF se ha generado y guardado automáticamente en Google Drive.\n\nID: " + auditoria.id);
+        await appGasPost({accion:"guardarAuditoria", tipo:"VEHICULOS_EQUIPOS", auditoria});
+        const pdfVeh = await obtenerBlobPdfAuditoriaLocal();
+        await guardarPdfEnDrive(pdfVeh.blob, auditoria.id, "VEHICULOS_EQUIPOS", (auditoria.id||"AUDITORIA")+"_Auditoria_Vehiculo.pdf");
+        alert("Auditoría finalizada, guardada en Google Sheets/Drive y PDF enviado a Informes. ID: " + auditoria.id);
+        abrirDashboardEstadisticas();
     } catch (e) {
-        console.error("Error enviando auditoría/PDF a Google:", e);
-        alert("La auditoría se ha marcado como FINALIZADA, pero se produjo un error al guardar los datos o generar/subir el PDF a Google Drive.\n\n" + (e.message || e));
+        alert("La auditoría ha quedado FINALIZADA, pero no se pudo sincronizar con Google Sheets/Drive.\n\n" + (e.message || e));
     }
 }
 
@@ -3216,10 +3190,13 @@ async function generarPdfAuditoriaLocal() {
     try {
         const { blob } = await obtenerBlobPdfAuditoriaLocal();
         if (_ultimoPdfAuditoriaUrl) URL.revokeObjectURL(_ultimoPdfAuditoriaUrl);
-        const nombrePdf = (auditoria.id || "AUDITORIA") + "_Auditoria_Vehiculo.pdf";
         _ultimoPdfAuditoriaUrl = URL.createObjectURL(blob);
-        try { await guardarAuditoriaEnGoogle("VEHICULOS_EQUIPOS"); } catch (e) { console.error("No se pudo sincronizar la auditoría antes del PDF:", e); }
-        await guardarYDescargarPdf(blob, nombrePdf, "VEHICULOS_EQUIPOS");
+        const enlace = document.createElement("a");
+        enlace.href = _ultimoPdfAuditoriaUrl;
+        enlace.download = (auditoria.id || "AUDITORIA") + "_Auditoria_Vehiculo.pdf";
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
     } catch (error) {
         console.error(error);
         alert("No se ha podido generar el PDF local. " + (error && error.message ? error.message : "Compruebe la conexión para cargar la librería PDF."));
@@ -11354,6 +11331,11 @@ function instalarDashboardAuditoriasIndependientes() {
         </div>
     `;
     main.insertBefore(sec, main.firstChild);
+    const stats = document.createElement("section");
+    stats.id = "dashboardEstadisticas"; stats.className = "screen";
+    stats.innerHTML = `<div class="card"><h2>Estadísticas</h2><p>Pulse para cargar las estadísticas desde Google Sheets.</p></div>`;
+    main.insertBefore(stats, document.getElementById("modulo") || null);
+    sec.querySelector(".module-grid").insertAdjacentHTML("beforeend", `<button type="button" class="module-card summary-card" onclick="abrirDashboardEstadisticas()"><span class="module-icon">📊</span><strong>Estadísticas</strong><span class="status status-gray">Google Sheets</span></button><button type="button" class="module-card summary-card" onclick="abrirPanelEmpresas()"><span class="module-icon">🏢</span><strong>Empresas</strong><span class="status status-gray">Catálogo automático</span></button>`);
     const tituloHeader = document.querySelector(".app-header h1");
     if (tituloHeader) tituloHeader.textContent = "Auditorías SPM Grupo Zener";
     inicializarAuditoriaCampo();
@@ -11426,99 +11408,17 @@ function instalarDashboardCampo() {
     }
 }
 
-function _textoComparable(v) {
-    return String(v == null ? "" : v).trim().toUpperCase();
-}
-
-function obtenerTrabajadorPrincipalCampo() {
-    inicializarAuditoriaCampo();
-    let principal = auditoriaCampo.trabajadores.find(t => t && t.esTrabajadorPrincipal === true);
-    if (principal) return principal;
-    const dg = auditoria?.datosGenerales || {};
-    const dni = _textoComparable(dg.dniNie);
-    const nombre = _textoComparable(dg.trabajador);
-    principal = auditoriaCampo.trabajadores.find(t => {
-        if (!t) return false;
-        const tdni = _textoComparable(t.dni);
-        const tnom = _textoComparable(t.nombre);
-        return (dni && tdni === dni) || (!dni && nombre && tnom === nombre);
-    });
-    if (principal) principal.esTrabajadorPrincipal = true;
-    return principal || null;
-}
-
-function sincronizarTrabajadorPrincipal(origen) {
-    inicializarAuditoriaCampo();
-    const dg = auditoria.datosGenerales || {};
-    const dc = auditoriaCampo.datos || (auditoriaCampo.datos = {});
-    const origenNorm = String(origen || "").toUpperCase();
-
-    if (origenNorm === "CAMPO") {
-        dg.trabajador = dc.trabajador || "";
-        dg.dniNie = normalizarDniNie(dc.dniNie || "");
-        dg.empresa = dc.empresa || dg.empresa || "";
-    } else if (origenNorm === "LISTA") {
-        const principal = obtenerTrabajadorPrincipalCampo();
-        if (principal) {
-            dc.trabajador = principal.nombre || "";
-            dc.dniNie = normalizarDniNie(principal.dni || "");
-            dc.empresa = principal.empresa || "";
-            dg.trabajador = dc.trabajador;
-            dg.dniNie = dc.dniNie;
-            dg.empresa = dc.empresa;
-        }
-    }
-
-    // En VEHÍCULOS o sincronización inicial, Datos Generales es la fuente.
-    const principalActual = obtenerTrabajadorPrincipalCampo();
-    const nombre = String(dg.trabajador || "").trim();
-    const dni = normalizarDniNie(dg.dniNie || "");
-    const empresa = String(dg.empresa || "").trim();
-    if (origenNorm !== "CAMPO" && origenNorm !== "LISTA") {
-        dc.trabajador = nombre;
-        dc.dniNie = dni;
-        dc.empresa = empresa;
-    }
-
-    let principal = principalActual;
-    if (!principal) {
-        const porDni = dni && auditoriaCampo.trabajadores.find(t => _textoComparable(t.dni) === _textoComparable(dni));
-        const porNombre = !dni && nombre && auditoriaCampo.trabajadores.find(t => _textoComparable(t.nombre) === _textoComparable(nombre));
-        principal = porDni || porNombre || null;
-    }
-    if (!principal && (nombre || dni || empresa)) {
-        principal = { id: "TC-VDF-PRINCIPAL", nombre: "", dni: "", empresa: "", esTrabajadorPrincipal: true };
-        auditoriaCampo.trabajadores.unshift(principal);
-    }
-    if (principal) {
-        principal.esTrabajadorPrincipal = true;
-        principal.nombre = dc.trabajador || nombre;
-        principal.dni = normalizarDniNie(dc.dniNie || dni);
-        principal.empresa = dc.empresa || empresa;
-    }
-
-    // Si por una versión anterior quedaron dos registros que representan al mismo
-    // principal, conserva el marcado como principal y los trabajadores adicionales.
-    const seen = new Set();
-    auditoriaCampo.trabajadores = auditoriaCampo.trabajadores.filter(t => {
-        if (!t) return false;
-        if (t.esTrabajadorPrincipal) return true;
-        const dniT = _textoComparable(t.dni);
-        const nombreT = _textoComparable(t.nombre);
-        const coincide = (principal && dniT && dni && dniT === _textoComparable(dni)) ||
-                         (principal && !dniT && !dni && nombreT && nombreT === _textoComparable(nombre));
-        return !coincide;
-    });
-}
-
 function sincronizarDatosVehiculosEnCampo() {
-    inicializarAuditoriaCampo();
+    // Copia inicial/no destructiva de Datos Generales de Vehículos y Equipos a Campo.
+    // Si el usuario ya ha editado un dato en Campo, se conserva.
     const dg = auditoria?.datosGenerales || {};
     const loc = dg.localizacion || {};
     const dc = auditoriaCampo.datos;
+
     const copiarSiVacio = (obj, clave, valor) => {
         if ((obj[clave] === "" || obj[clave] == null) && valor !== "" && valor != null) obj[clave] = valor;
     };
+
     copiarSiVacio(dc, "fecha", dg.fecha);
     copiarSiVacio(dc, "horaInicio", dg.horaInicio);
     copiarSiVacio(dc, "auditor", dg.auditor);
@@ -11533,11 +11433,27 @@ function sincronizarDatosVehiculosEnCampo() {
     copiarSiVacio(dc, "cliente", dg.empresa);
     copiarSiVacio(dc, "obra", dg.proyecto);
     copiarSiVacio(dc, "direccion", loc.direccion);
+
     dc.localizacion = dc.localizacion || {};
     ["tipo", "poblacion", "provincia", "codigoPostal", "latitud", "longitud"].forEach(k => {
-        if ((dc.localizacion[k] === "" || dc.localizacion[k] == null) && loc[k] != null && loc[k] !== "") dc.localizacion[k] = loc[k];
+        if ((dc.localizacion[k] === "" || dc.localizacion[k] == null) && loc[k] != null && loc[k] !== "") {
+            dc.localizacion[k] = loc[k];
+        }
     });
-    sincronizarTrabajadorPrincipal("VEHICULOS");
+
+    // El trabajador principal de Vehículos se incorpora a Campo sin duplicarlo.
+    const nombre = String(dg.trabajador || "").trim();
+    const dni = String(dg.dniNie || "").trim();
+    const empresa = String(dg.empresa || "").trim();
+    if (nombre || dni || empresa) {
+        const existe = auditoriaCampo.trabajadores.some(t =>
+            (dni && String(t.dni || "").trim().toUpperCase() === dni.toUpperCase()) ||
+            (!dni && nombre && String(t.nombre || "").trim().toUpperCase() === nombre.toUpperCase())
+        );
+        if (!existe) auditoriaCampo.trabajadores.unshift({
+            id: "TC-VDF-" + Date.now(), nombre, dni, empresa
+        });
+    }
 }
 
 function instalarBotonMenuInicialVehiculos() {
@@ -11618,6 +11534,13 @@ function guardarDatosCampoDesdeFormulario() {
     auditoriaCampo.datos.empresa = val("campoEmpresa") || "";
     auditoriaCampo.datos.proyecto = val("campoProyecto") || "";
     auditoriaCampo.datos.trabajador = val("campoTrabajador") || "";
+    auditoriaCampo.datos.dniNie = val("campoDniNie") || "";
+    auditoriaCampo.datos.obra = val("campoObra") || "";
+    auditoriaCampo.datos.cliente = val("campoCliente") || "";
+    auditoriaCampo.datos.direccion = val("campoDireccion") || "";
+    auditoriaCampo.datos.empresa = val("campoEmpresa") || "";
+    auditoriaCampo.datos.proyecto = val("campoProyecto") || "";
+    auditoriaCampo.datos.trabajador = val("campoTrabajador") || "";
     auditoriaCampo.datos.dniNie = normalizarDniNie(val("campoDniNie"));
     auditoriaCampo.datos.obra = val("campoObra") || "";
     auditoriaCampo.datos.direccion = val("campoDireccion") || "";
@@ -11628,7 +11551,6 @@ function guardarDatosCampoDesdeFormulario() {
     auditoriaCampo.datos.localizacion.provincia = val("campoProvincia") || auditoriaCampo.datos.localizacion.provincia || "";
     auditoriaCampo.datos.localizacion.codigoPostal = val("campoCodigoPostal") || auditoriaCampo.datos.localizacion.codigoPostal || "";
     auditoriaCampo.estado = auditoriaCampo.estado === "FINALIZADA" ? "FINALIZADA" : "EN_CURSO";
-    sincronizarTrabajadorPrincipal("CAMPO");
     actualizarDashboardCampo();
 }
 
@@ -11741,20 +11663,16 @@ function agregarTrabajadorCampo() {
     abrirModuloCampo("trabajadores");
 }
 function eliminarTrabajadorCampo(id) {
-    const t = auditoriaCampo.trabajadores.find(x => x.id === id);
-    if (t?.esTrabajadorPrincipal) { alert("El trabajador principal está vinculado a los Datos de auditoría y no puede eliminarse desde este listado."); return; }
     auditoriaCampo.trabajadores = auditoriaCampo.trabajadores.filter(t => t.id !== id);
     abrirModuloCampo("trabajadores");
 }
 function actualizarTrabajadorCampo(id, clave, valor) {
     const t = auditoriaCampo.trabajadores.find(x => x.id === id);
-    if (!t) return;
-    t[clave] = clave === "dni" ? normalizarDniNie(valor) : valor;
-    if (t.esTrabajadorPrincipal) sincronizarTrabajadorPrincipal("LISTA");
+    if (t) t[clave] = valor;
     actualizarDashboardCampo();
 }
 function renderModuloCampoTrabajadores() {
-    const filas = auditoriaCampo.trabajadores.map((t,i)=>`<div class="card" style="margin-bottom:10px"><div style="display:grid;grid-template-columns:40px 1.4fr 1fr 1.2fr auto;gap:8px;align-items:end"><strong>#${i+1}</strong><div class="field"><label>Nombre y apellidos</label><input value="${campoEsc(t.nombre)}" oninput="actualizarTrabajadorCampo('${t.id}','nombre',this.value)"></div><div class="field"><label>DNI / NIE</label><input maxlength="9" autocomplete="off" placeholder="DNI/NIE" value="${campoEsc(t.dni)}" oninput="validarDniNieTrabajadorCampo(this,'${t.id}')"><small data-dni-error style="display:block;margin-top:6px" aria-live="polite"></small></div><div class="field"><label>Empresa</label><input value="${campoEsc(t.empresa)}" oninput="actualizarTrabajadorCampo('${t.id}','empresa',this.value)"></div>${t.esTrabajadorPrincipal ? '<span class="status status-green">PRINCIPAL</span>' : `<button type="button" class="btn-secondary" onclick="eliminarTrabajadorCampo('${t.id}')">Eliminar</button>`}</div></div>`).join("");
+    const filas = auditoriaCampo.trabajadores.map((t,i)=>`<div class="card" style="margin-bottom:10px"><div style="display:grid;grid-template-columns:40px 1.4fr 1fr 1.2fr auto;gap:8px;align-items:end"><strong>#${i+1}</strong><div class="field"><label>Nombre y apellidos</label><input value="${campoEsc(t.nombre)}" oninput="actualizarTrabajadorCampo('${t.id}','nombre',this.value)"></div><div class="field"><label>DNI / NIE</label><input maxlength="9" autocomplete="off" placeholder="DNI/NIE" value="${campoEsc(t.dni)}" oninput="validarDniNieTrabajadorCampo(this,'${t.id}')"><small data-dni-error style="display:block;margin-top:6px" aria-live="polite"></small></div><div class="field"><label>Empresa</label><input value="${campoEsc(t.empresa)}" oninput="actualizarTrabajadorCampo('${t.id}','empresa',this.value)"></div><button type="button" class="btn-secondary" onclick="eliminarTrabajadorCampo('${t.id}')">Eliminar</button></div></div>`).join("");
     return `<div class="card"><p>Puede añadir trabajadores en cualquier momento, incluso después de haber comenzado el chequeo.</p><button type="button" class="primary-button" onclick="agregarTrabajadorCampo()">+ Añadir trabajador</button></div>${filas || '<div class="card">No hay trabajadores añadidos todavía.</div>'}`;
 }
 
@@ -11865,40 +11783,18 @@ function renderModuloCampoResumen(){
 }
 
 async function finalizarAuditoriaCampo(){
+    guardarDatosCampoDesdeFormulario();
     const chk=estadoChequeoCampo();
-    // Sin documento se permite continuar; si se informa, debe ser válido.
     const dniPrincipal=normalizarDniNie(auditoriaCampo.datos.dniNie || "");
-    if(dniPrincipal && !validarDniNie(dniPrincipal)){
-        alert("El DNI/NIE del trabajador principal no es válido. Compruebe el número y la letra.");
-        abrirModuloCampo("datos");
-        document.getElementById("campoDniNie")?.focus();
-        return;
-    }
-    const trabajadorInvalido=auditoriaCampo.trabajadores.find(t=>{
-        const dni=normalizarDniNie(t.dni || "");
-        return dni && !validarDniNie(dni);
-    });
-    if(trabajadorInvalido){
-        alert("Hay un DNI/NIE no válido en el listado de trabajadores. Corríjalo antes de finalizar.");
-        abrirModuloCampo("trabajadores");
-        return;
-    }
+    if(dniPrincipal && !validarDniNie(dniPrincipal)){alert("El DNI/NIE del trabajador principal no es válido. Compruebe el número y la letra.");abrirModuloCampo("datos");document.getElementById("campoDniNie")?.focus();return;}
+    const trabajadorInvalido=auditoriaCampo.trabajadores.find(t=>{const dni=normalizarDniNie(t.dni||"");return dni&&!validarDniNie(dni);});
+    if(trabajadorInvalido){alert("Hay un DNI/NIE no válido en el listado de trabajadores. Corríjalo antes de finalizar.");abrirModuloCampo("trabajadores");return;}
     if(!auditoriaCampo.datos.fecha){alert("Debe indicar la fecha.");return;}
     if(!chk.completo){alert(`Faltan comprobaciones por responder: ${chk.total-chk.completadas}.`);return;}
     if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
     auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen");
-    try {
-        // Al finalizar Campo se genera SIEMPRE el PDF y se envía automáticamente a Drive.
-        await guardarAuditoriaEnGoogle("CAMPO");
-        const { blob } = await obtenerBlobPdfAuditoriaCampoLocal();
-        const nombrePdf = (auditoriaCampo.id || "AUDITORIA_CAMPO") + "_Chequeo_Condiciones_Seguridad_ZENER.pdf";
-        const resultadoPdf = await guardarPdfEnGoogleDrive(blob, nombrePdf, "CAMPO");
-        console.info("PDF de auditoría de campo enviado automáticamente a Google Drive:", resultadoPdf);
-        alert("Auditoría de campo finalizada correctamente.\n\nSe han enviado los datos a Google Sheets y el informe PDF se ha generado y guardado automáticamente en Google Drive.\n\nID: " + auditoriaCampo.id);
-    } catch(e) {
-        console.error("Error enviando auditoría de campo/PDF a Google:",e);
-        alert("La auditoría de campo se ha marcado como FINALIZADA, pero se produjo un error al guardar los datos o generar/subir el PDF a Google Drive.\n\n"+(e.message||e));
-    }
+    try { const guardado=await appGasPost({accion:"guardarAuditoria",tipo:"CAMPO",auditoria:auditoriaCampo}); const pdfCampo=await obtenerBlobPdfAuditoriaCampoLocal(); await guardarPdfEnDrive(pdfCampo.blob,auditoriaCampo.id,"CAMPO",(auditoriaCampo.id||"AUDITORIA_CAMPO")+"_Chequeo_Condiciones_Seguridad_ZENER.pdf"); alert("Auditoría de campo finalizada, guardada en Google Sheets/Drive y PDF enviado a Informes. ID: "+auditoriaCampo.id); abrirDashboardEstadisticas(); }
+    catch(e){ alert("La auditoría de campo ha quedado FINALIZADA, pero no se pudo sincronizar con Google Sheets/Drive.\n\n"+(e.message||e)); }
 }
 
 function textoResultadoCampo(r){ return r==="SI"?"SI":r==="NO"?"NO":r==="NA"?"NA":""; }
@@ -11908,9 +11804,7 @@ async function generarPdfAuditoriaCampoLocal(){
         const {blob}=await obtenerBlobPdfAuditoriaCampoLocal();
         if(window._ultimoPdfCampoUrl)URL.revokeObjectURL(window._ultimoPdfCampoUrl);
         window._ultimoPdfCampoUrl=URL.createObjectURL(blob);
-        const nombrePdf=(auditoriaCampo.id||"AUDITORIA_CAMPO")+"_Chequeo_Condiciones_Seguridad_ZENER.pdf";
-        try { await guardarAuditoriaEnGoogle("CAMPO"); } catch(e) { console.error("No se pudo sincronizar la auditoría de campo antes del PDF:",e); }
-        await guardarYDescargarPdf(blob,nombrePdf,"CAMPO");
+        const a=document.createElement("a");a.href=window._ultimoPdfCampoUrl;a.download=(auditoriaCampo.id||"AUDITORIA_CAMPO")+"_Chequeo_Condiciones_Seguridad_ZENER.pdf";document.body.appendChild(a);a.click();a.remove();
     }catch(e){console.error(e);alert("No se ha podido generar el PDF de auditoría de campo: "+(e.message||e));}
 }
 async function verPdfAuditoriaCampoLocal(){
