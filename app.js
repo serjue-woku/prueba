@@ -2521,11 +2521,18 @@ async function finalizarAuditoriaDesdeResumen() {
     actualizarDashboard();
     renderizarResumenFinalizar();
     try {
+        // Al finalizar se genera SIEMPRE el PDF y se envía automáticamente a Drive.
+        // Los botones "Generar PDF" y "Ver PDF" son solo herramientas manuales y
+        // ya no son necesarios para que exista el informe en Google Drive.
         await guardarAuditoriaEnGoogle("VEHICULOS_EQUIPOS");
-        alert("Auditoría finalizada correctamente y enviada a Google Sheets/Drive. ID: " + auditoria.id);
+        const { blob } = await obtenerBlobPdfAuditoriaLocal();
+        const nombrePdf = (auditoria.id || "AUDITORIA") + "_Auditoria_Vehiculo.pdf";
+        const resultadoPdf = await guardarPdfEnGoogleDrive(blob, nombrePdf, "VEHICULOS_EQUIPOS");
+        console.info("PDF de auditoría de vehículos enviado automáticamente a Google Drive:", resultadoPdf);
+        alert("Auditoría finalizada correctamente.\n\nSe han enviado los datos a Google Sheets y el informe PDF se ha generado y guardado automáticamente en Google Drive.\n\nID: " + auditoria.id);
     } catch (e) {
-        console.error("Error enviando auditoría a Google:", e);
-        alert("Auditoría finalizada correctamente, pero no se pudo enviar a Google Sheets/Drive.\n\n" + (e.message || e));
+        console.error("Error enviando auditoría/PDF a Google:", e);
+        alert("La auditoría se ha marcado como FINALIZADA, pero se produjo un error al guardar los datos o generar/subir el PDF a Google Drive.\n\n" + (e.message || e));
     }
 }
 
@@ -11881,11 +11888,16 @@ async function finalizarAuditoriaCampo(){
     if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
     auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen");
     try {
+        // Al finalizar Campo se genera SIEMPRE el PDF y se envía automáticamente a Drive.
         await guardarAuditoriaEnGoogle("CAMPO");
-        alert("Auditoría de campo finalizada correctamente y enviada a Google Sheets/Drive. ID: "+auditoriaCampo.id);
+        const { blob } = await obtenerBlobPdfAuditoriaCampoLocal();
+        const nombrePdf = (auditoriaCampo.id || "AUDITORIA_CAMPO") + "_Chequeo_Condiciones_Seguridad_ZENER.pdf";
+        const resultadoPdf = await guardarPdfEnGoogleDrive(blob, nombrePdf, "CAMPO");
+        console.info("PDF de auditoría de campo enviado automáticamente a Google Drive:", resultadoPdf);
+        alert("Auditoría de campo finalizada correctamente.\n\nSe han enviado los datos a Google Sheets y el informe PDF se ha generado y guardado automáticamente en Google Drive.\n\nID: " + auditoriaCampo.id);
     } catch(e) {
-        console.error("Error enviando auditoría de campo a Google:",e);
-        alert("Auditoría de campo finalizada correctamente, pero no se pudo enviar a Google Sheets/Drive.\n\n"+(e.message||e));
+        console.error("Error enviando auditoría de campo/PDF a Google:",e);
+        alert("La auditoría de campo se ha marcado como FINALIZADA, pero se produjo un error al guardar los datos o generar/subir el PDF a Google Drive.\n\n"+(e.message||e));
     }
 }
 
