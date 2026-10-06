@@ -238,22 +238,142 @@ async function diagnosticoGoogleAppsScript() {
 
 function escStats(v) { return escaparValorResumen(v == null ? "" : String(v)); }
 
+let _estadisticasActuales = null;
+let _estadisticasFiltros = { empresa: "", provincia: "", tipo: "", estado: "", incidencias: "" };
+
+function normalizarTextoEstadisticas(v) {
+    return String(v == null ? "" : v).replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function filtrarDetalleEstadisticas() {
+    const d = _estadisticasActuales || {};
+    const rows = Array.isArray(d.detalleAuditorias) ? d.detalleAuditorias : [];
+    const f = _estadisticasFiltros || {};
+    return rows.filter(r => {
+        if (f.empresa && !normalizarTextoEstadisticas(r.empresa).includes(normalizarTextoEstadisticas(f.empresa))) return false;
+        if (f.provincia && !normalizarTextoEstadisticas(r.provincia).includes(normalizarTextoEstadisticas(f.provincia))) return false;
+        if (f.tipo && normalizarTextoEstadisticas(r.tipo) !== normalizarTextoEstadisticas(f.tipo)) return false;
+        if (f.estado && normalizarTextoEstadisticas(r.estado) !== normalizarTextoEstadisticas(f.estado)) return false;
+        if (f.incidencias === "con" && Number(r.incidencias || 0) <= 0) return false;
+        if (f.incidencias === "sin" && Number(r.incidencias || 0) > 0) return false;
+        return true;
+    });
+}
+
+function obtenerEmpresasFiltradasEstadisticas() {
+    const d = _estadisticasActuales || {};
+    const rows = Array.isArray(d.porEmpresa) ? d.porEmpresa : [];
+    const f = normalizarTextoEstadisticas((_estadisticasFiltros || {}).empresa);
+    return f ? rows.filter(x => normalizarTextoEstadisticas(x.empresa).includes(f)) : rows;
+}
+
+function obtenerProvinciasFiltradasEstadisticas() {
+    const d = _estadisticasActuales || {};
+    const rows = Array.isArray(d.porProvincia) ? d.porProvincia : [];
+    const f = normalizarTextoEstadisticas((_estadisticasFiltros || {}).provincia);
+    return f ? rows.filter(x => normalizarTextoEstadisticas(x.provincia).includes(f)) : rows;
+}
+
+function aplicarFiltrosEstadisticas() {
+    const get = id => document.getElementById(id);
+    _estadisticasFiltros = {
+        empresa: get("statsFiltroEmpresa") ? get("statsFiltroEmpresa").value : "",
+        provincia: get("statsFiltroProvincia") ? get("statsFiltroProvincia").value : "",
+        tipo: get("statsFiltroTipo") ? get("statsFiltroTipo").value : "",
+        estado: get("statsFiltroEstado") ? get("statsFiltroEstado").value : "",
+        incidencias: get("statsFiltroIncidencias") ? get("statsFiltroIncidencias").value : ""
+    };
+    renderTablasEstadisticas();
+}
+
+function limpiarFiltrosEstadisticas() {
+    _estadisticasFiltros = { empresa: "", provincia: "", tipo: "", estado: "", incidencias: "" };
+    ["statsFiltroEmpresa","statsFiltroProvincia","statsFiltroTipo","statsFiltroEstado","statsFiltroIncidencias"].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = "";
+    });
+    renderTablasEstadisticas();
+}
+
+function renderTablasEstadisticas() {
+    const host = document.getElementById("statsTablasHost");
+    if (!host) return;
+    const empresas = obtenerEmpresasFiltradasEstadisticas();
+    const provincias = obtenerProvinciasFiltradasEstadisticas();
+    const detalle = filtrarDetalleEstadisticas();
+
+    const empresaRows = empresas.map(x => `<tr><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td><td class="stats-num">${Number(x.trabajadores || 0)}</td><td class="stats-date">${escStats(x.ultima || "")}</td></tr>`).join("") || `<tr><td colspan="6" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
+    const provRows = provincias.map(x => `<tr><td class="stats-text">${escStats(x.provincia)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td></tr>`).join("") || `<tr><td colspan="4" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
+    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td></tr>`).join("") || `<tr><td colspan="10" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
+
+    host.innerHTML = `
+      <div class="card stats-card">
+        <div class="stats-section-title"><div><h3>Resumen por empresa</h3><small>${empresas.length} empresas</small></div></div>
+        <div class="table-responsive stats-table-wrap"><table class="stats-table"><thead><tr><th>Empresa</th><th>Auditorías</th><th>Correctas</th><th>Con incidencias</th><th>Trabajadores</th><th>Última auditoría</th></tr></thead><tbody>${empresaRows}</tbody></table></div>
+      </div>
+      <div class="card stats-card">
+        <div class="stats-section-title"><div><h3>Resumen por provincia</h3><small>${provincias.length} provincias</small></div></div>
+        <div class="table-responsive stats-table-wrap"><table class="stats-table"><thead><tr><th>Provincia</th><th>Auditorías</th><th>Correctas</th><th>Con incidencias</th></tr></thead><tbody>${provRows}</tbody></table></div>
+      </div>
+      <div class="card stats-card">
+        <div class="stats-section-title"><div><h3>Detalle de auditorías</h3><small>${detalle.length} registros mostrados</small></div></div>
+        <div class="table-responsive stats-table-wrap"><table class="stats-table stats-detail-table"><thead><tr><th>ID auditoría</th><th>Fecha</th><th>Tipo</th><th>Auditor</th><th>Empresa</th><th>Trabajador</th><th>DNI/NIE</th><th>Estado</th><th>Incidencias</th><th>Provincia</th></tr></thead><tbody>${detalleRows}</tbody></table></div>
+      </div>`;
+}
+
+function exportarEstadisticasExcel() {
+    if (typeof XLSX === "undefined") {
+        alert("No se ha cargado el componente de exportación Excel. Recargue la aplicación e inténtelo de nuevo.");
+        return;
+    }
+    const empresas = obtenerEmpresasFiltradasEstadisticas();
+    const provincias = obtenerProvinciasFiltradasEstadisticas();
+    const detalle = filtrarDetalleEstadisticas();
+    const wb = XLSX.utils.book_new();
+
+    const wsEmp = XLSX.utils.json_to_sheet(empresas.map(x => ({
+        "Empresa": x.empresa, "Auditorías": Number(x.auditorias || 0), "Correctas": Number(x.correctas || 0),
+        "Con incidencias": Number(x.conIncidencias || 0), "Trabajadores": Number(x.trabajadores || 0), "Última auditoría": x.ultima || ""
+    })));
+    const wsProv = XLSX.utils.json_to_sheet(provincias.map(x => ({
+        "Provincia": x.provincia, "Auditorías": Number(x.auditorias || 0), "Correctas": Number(x.correctas || 0), "Con incidencias": Number(x.conIncidencias || 0)
+    })));
+    const wsDet = XLSX.utils.json_to_sheet(detalle.map(x => ({
+        "ID auditoría": x.id, "Fecha": x.fecha, "Tipo": x.tipo, "Auditor": x.auditor, "Empresa": x.empresa,
+        "Trabajador": x.trabajador, "DNI/NIE": x.dni, "Estado": x.estado, "Incidencias": Number(x.incidencias || 0), "Provincia": x.provincia
+    })));
+
+    [
+        [wsEmp, "Por Empresa"], [wsProv, "Por Provincia"], [wsDet, "Auditorías"]
+    ].forEach(([ws, name]) => {
+        const ref = ws['!ref'];
+        if (ref) ws['!autofilter'] = { ref };
+        ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+        XLSX.utils.book_append_sheet(wb, ws, name);
+    });
+    const fecha = new Date().toISOString().slice(0,10).replace(/-/g, "");
+    XLSX.writeFile(wb, `Estadisticas_Auditorias_SPM_${fecha}.xlsx`, { compression: true });
+}
+
 function renderDashboardEstadisticas(data) {
     const d = data || {};
+    _estadisticasActuales = d;
+    _estadisticasFiltros = { empresa: "", provincia: "", tipo: "", estado: "", incidencias: "" };
     const total = Number(d.totalAuditorias || 0);
     const cards = [
       ["📋", "Auditorías", total], ["🚐", "Vehículos", Number(d.vehiculos || 0)],
       ["🏗️", "Campo", Number(d.campo || 0)], ["⚠️", "Con incidencias", Number(d.conIncidencias || 0)],
       ["👷", "Trabajadores", Number(d.totalTrabajadores || 0)], ["🏢", "Empresas", Number(d.empresas || 0)]
-    ].map(x => `<div class="card" style="text-align:center;padding:14px"><div style="font-size:25px">${x[0]}</div><strong>${escStats(x[1])}</strong><div style="font-size:25px;font-weight:700;margin-top:5px">${x[2]}</div></div>`).join("");
-    const empresas = Array.isArray(d.porEmpresa) ? d.porEmpresa : [];
-    const provincias = Array.isArray(d.porProvincia) ? d.porProvincia : [];
-    const empresaRows = empresas.map(x => `<tr><td>${escStats(x.empresa)}</td><td>${x.auditorias}</td><td>${x.correctas}</td><td>${x.conIncidencias}</td><td>${x.trabajadores}</td><td>${escStats(x.ultima || "")}</td></tr>`).join("") || `<tr><td colspan="6">No hay empresas registradas todavía.</td></tr>`;
-    const provRows = provincias.map(x => `<tr><td>${escStats(x.provincia)}</td><td>${x.auditorias}</td><td>${x.correctas}</td><td>${x.conIncidencias}</td></tr>`).join("") || `<tr><td colspan="4">No hay datos de provincia.</td></tr>`;
-    return `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Datos consolidados desde Google Sheets.</p></div><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div>
-      <div class="module-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));">${cards}</div>
-      <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h3>Empresas</h3><button class="secondary-button" onclick="abrirPanelEmpresas()">Ver empresas</button></div><div class="table-responsive"><table style="width:100%;border-collapse:collapse"><thead><tr><th>Empresa</th><th>Auditorías</th><th>Correctas</th><th>Con incidencias</th><th>Trabajadores</th><th>Última</th></tr></thead><tbody>${empresaRows}</tbody></table></div></div>
-      <div class="card"><h3>Auditorías por provincia</h3><div class="table-responsive"><table style="width:100%;border-collapse:collapse"><thead><tr><th>Provincia</th><th>Auditorías</th><th>Correctas</th><th>Con incidencias</th></tr></thead><tbody>${provRows}</tbody></table></div></div>`;
+    ].map(x => `<div class="card stats-kpi-card"><div class="stats-kpi-icon">${x[0]}</div><strong>${escStats(x[1])}</strong><div class="stats-kpi-value">${x[2]}</div></div>`).join("");
+    return `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Datos consolidados desde Google Sheets. Las tablas se filtran desde los controles superiores y pueden exportarse a Excel.</p></div><div class="stats-header-actions"><button type="button" class="primary-button" onclick="exportarEstadisticasExcel()">⬇ Descargar Excel</button><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div></div>
+      <div class="module-grid stats-kpi-grid">${cards}</div>
+      <div class="card stats-filters-card"><div class="stats-section-title"><div><h3>Filtros</h3><small>Los filtros afectan a las tablas y al Excel descargado.</small></div><button type="button" class="secondary-button" onclick="limpiarFiltrosEstadisticas()">Limpiar filtros</button></div><div class="stats-filters-grid">
+        <label>Empresa<input id="statsFiltroEmpresa" type="text" placeholder="Buscar empresa…" oninput="aplicarFiltrosEstadisticas()"></label>
+        <label>Provincia<input id="statsFiltroProvincia" type="text" placeholder="Buscar provincia…" oninput="aplicarFiltrosEstadisticas()"></label>
+        <label>Tipo<select id="statsFiltroTipo" onchange="aplicarFiltrosEstadisticas()"><option value="">Todos</option><option value="VEHICULOS_EQUIPOS">Vehículos / EPIs</option><option value="CAMPO">Auditoría de Campo</option></select></label>
+        <label>Estado<select id="statsFiltroEstado" onchange="aplicarFiltrosEstadisticas()"><option value="">Todos</option><option value="FINALIZADA">Finalizada</option><option value="BORRADOR">Borrador</option></select></label>
+        <label>Incidencias<select id="statsFiltroIncidencias" onchange="aplicarFiltrosEstadisticas()"><option value="">Todas</option><option value="con">Con incidencias</option><option value="sin">Sin incidencias</option></select></label>
+      </div></div>
+      <div id="statsTablasHost"></div>`;
 }
 
 async function abrirDashboardEstadisticas() {
@@ -261,7 +381,7 @@ async function abrirDashboardEstadisticas() {
     if (!sec) return;
     sec.innerHTML = `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Cargando datos de Google Sheets…</p></div><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div><div class="card">Consultando datos…</div>`;
     mostrarPantalla("dashboardEstadisticas");
-    try { const data = await cargarEstadisticasEmpresas(); sec.innerHTML = renderDashboardEstadisticas(data); }
+    try { const data = await cargarEstadisticasEmpresas(); sec.innerHTML = renderDashboardEstadisticas(data); renderTablasEstadisticas(); }
     catch(e) { sec.innerHTML = `<div class="card"><h3>No se pudieron cargar las estadísticas</h3><p>${escStats(e.message || e)}</p><button class="secondary-button" onclick="abrirDashboardEstadisticas()">Reintentar</button></div>`; }
 }
 
