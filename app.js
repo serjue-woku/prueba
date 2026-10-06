@@ -110,17 +110,47 @@ async function sincronizarFotografiasAuditoria(auditoriaId, tipo, fotografias) {
 async function guardarAuditoriaYFotografias(tipo, auditoria) {
     const preparado = prepararAuditoriaParaSincronizacion(auditoria);
     const copia = preparado.auditoria;
+
+    // La auditoría se guarda primero. Si esta operación falla, no continuamos.
     const resultado = await appGasPost({
         accion: "guardarAuditoria",
         tipo: tipo,
         auditoria: copia
     });
-    const fotografiasGuardadas = await sincronizarFotografiasAuditoria(
-        auditoria && auditoria.id ? auditoria.id : "",
-        tipo,
-        preparado.fotografias
-    );
-    return { resultado, fotografiasGuardadas, fotografiasTotales: preparado.fotografias.length };
+
+    // Las fotografías son independientes: si una falla, no debemos perder ni
+    // la auditoría ni el resto de fotografías ni impedir la generación del PDF.
+    let fotografiasGuardadas = 0;
+    const erroresFotografias = [];
+    for (let i = 0; i < preparado.fotografias.length; i++) {
+        const f = preparado.fotografias[i];
+        try {
+            await appGasPost({
+                accion: "guardarFotografia",
+                auditoriaId: auditoria && auditoria.id ? auditoria.id : "",
+                tipo: tipo || "AUDITORIA",
+                modulo: f.modulo || tipo || "GENERAL",
+                incidenciaId: f.incidenciaId || "",
+                indice: f.indice || (i + 1),
+                nombreSugerido: f.nombreSugerido || "",
+                dataUrl: f.dataUrl
+            });
+            fotografiasGuardadas++;
+        } catch (e) {
+            erroresFotografias.push({
+                indice: f.indice || (i + 1),
+                modulo: f.modulo || tipo || "GENERAL",
+                error: e && e.message ? e.message : String(e)
+            });
+        }
+    }
+
+    return {
+        resultado,
+        fotografiasGuardadas,
+        fotografiasTotales: preparado.fotografias.length,
+        erroresFotografias
+    };
 }
 
 async function appGasGet(payload) {
@@ -2634,21 +2664,31 @@ async function finalizarAuditoriaDesdeResumen() {
     actualizarDashboard(); renderizarResumenFinalizar();
     let auditoriaGuardada = false;
     let fotosGuardadas = 0;
+    let fotosTotales = 0;
+    let erroresFotografias = [];
     try {
         const sync = await guardarAuditoriaYFotografias("VEHICULOS_EQUIPOS", auditoria);
         auditoriaGuardada = true;
         fotosGuardadas = sync.fotografiasGuardadas;
+        fotosTotales = sync.fotografiasTotales;
+        erroresFotografias = sync.erroresFotografias || [];
     } catch (e) {
-        alert("La auditoría ha quedado FINALIZADA, pero no se pudo guardar correctamente en Google Sheets.\n\n" + (e.message || e));
+        alert("La auditoría no pudo guardarse en Google Sheets.\n\n" + (e.message || e));
         return;
     }
 
     try {
         const pdfVeh = await obtenerBlobPdfAuditoriaLocal();
         await guardarPdfEnDrive(pdfVeh.blob, auditoria.id, "VEHICULOS_EQUIPOS", (auditoria.id||"AUDITORIA")+"_Auditoria_Vehiculo.pdf");
-        alert("Auditoría finalizada correctamente. Google Sheets: OK. Fotografías: " + fotosGuardadas + ". PDF: OK. ID: " + auditoria.id);
+        const avisoFotos = erroresFotografias.length
+            ? "\nFotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas. " + erroresFotografias.length + " con error."
+            : "\nFotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas.";
+        alert("Auditoría finalizada correctamente. Google Sheets: OK." + avisoFotos + "\nPDF: OK. ID: " + auditoria.id);
     } catch (e) {
-        alert("La auditoría y sus fotografías se han guardado correctamente, pero el PDF no pudo guardarse en la carpeta Informes.\n\n" + (e.message || e) + "\n\nLa auditoría NO se ha perdido.");
+        const avisoFotos = erroresFotografias.length
+            ? "Fotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas (" + erroresFotografias.length + " con error)."
+            : "Fotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas.";
+        alert("La auditoría se ha guardado correctamente en Google Sheets. " + avisoFotos + "\nPero el PDF no pudo guardarse en la carpeta Informes.\n\n" + (e.message || e) + "\n\nLa auditoría NO se ha perdido.");
     }
     if (auditoriaGuardada) abrirDashboardEstadisticas();
 }
@@ -12072,22 +12112,33 @@ async function finalizarAuditoriaCampo(){
     if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
     auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen");
     let auditoriaGuardada = false;
+    let fotosCampoGuardadas = 0;
+    let fotosCampoTotales = 0;
+    let erroresFotosCampo = [];
     try {
         const syncCampo = await guardarAuditoriaYFotografias("CAMPO", auditoriaCampo);
         auditoriaGuardada = true;
-        var fotosCampoGuardadas = syncCampo.fotografiasGuardadas;
+        fotosCampoGuardadas = syncCampo.fotografiasGuardadas;
+        fotosCampoTotales = syncCampo.fotografiasTotales;
+        erroresFotosCampo = syncCampo.erroresFotografias || [];
     } catch(e) {
-        alert("La auditoría ha quedado FINALIZADA, pero no se pudo guardar la auditoría en Google Sheets/Drive.\n\n"+(e.message||e));
+        alert("La auditoría de campo no pudo guardarse en Google Sheets.\n\n"+(e.message||e));
         return;
     }
 
     try {
         const pdfCampo=await obtenerBlobPdfAuditoriaCampoLocal();
         await guardarPdfEnDrive(pdfCampo.blob,auditoriaCampo.id,"CAMPO",(auditoriaCampo.id||"AUDITORIA_CAMPO")+"_Chequeo_Condiciones_Seguridad_ZENER.pdf");
-        alert("Auditoría de campo guardada correctamente en Google Sheets y Drive. PDF enviado a Informes. ID: "+auditoriaCampo.id);
+        const avisoFotos = erroresFotosCampo.length
+            ? " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
+            : " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
+        alert("Auditoría de campo guardada correctamente en Google Sheets y Drive." + avisoFotos + " PDF enviado a Informes. ID: "+auditoriaCampo.id);
     } catch(e) {
         if(auditoriaGuardada){
-            alert("La auditoría ha quedado guardada correctamente en Google Sheets y se han sincronizado " + (typeof fotosCampoGuardadas === "number" ? fotosCampoGuardadas : 0) + " fotografías, pero el PDF no pudo confirmarse en la carpeta Informes.\n\n"+(e.message||e)+"\n\nLa auditoría NO se ha perdido.");
+            const avisoFotos = erroresFotosCampo.length
+                ? "Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
+                : "Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
+            alert("La auditoría de campo ha quedado guardada correctamente en Google Sheets. " + avisoFotos + "\nPero el PDF no pudo confirmarse en la carpeta Informes.\n\n"+(e.message||e)+"\n\nLa auditoría NO se ha perdido.");
         } else {
             alert("No se pudo completar la sincronización.\n\n"+(e.message||e));
         }
