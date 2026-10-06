@@ -305,7 +305,11 @@ function renderTablasEstadisticas() {
     const empresaRows = empresas.map(x => `<tr><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td><td class="stats-num">${Number(x.trabajadores || 0)}</td><td class="stats-date">${escStats(x.ultima || "")}</td></tr>`).join("") || `<tr><td colspan="6" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
     const provRows = provincias.map(x => `<tr><td class="stats-text">${escStats(x.provincia)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td></tr>`).join("") || `<tr><td colspan="4" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
     const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td></tr>`).join("") || `<tr><td colspan="11" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
-    const idsFiltrados=new Set(detalle.map(x=>String(x.id))); const incumplimientos=Array.isArray((_estadisticasActuales||{}).incumplimientos)?(_estadisticasActuales||{}).incumplimientos.filter(x=>idsFiltrados.has(String(x.idAuditoria))):[];
+    const idsFiltrados=new Set(detalle.map(x=>String(x.id)));
+    const globalIncumplimientos=Array.isArray((_estadisticasActuales||{}).incumplimientos)?_estadisticasActuales.incumplimientos:[];
+    const incumplimientos=globalIncumplimientos.length
+      ? globalIncumplimientos.filter(x=>idsFiltrados.has(String(x.idAuditoria)))
+      : detalle.flatMap(x=>Array.isArray(x.incumplimientos)?x.incumplimientos.map(i=>Object.assign({idAuditoria:x.id,fechaAuditoria:x.fecha,proyecto:x.proyecto,empresa:x.empresa,provincia:x.provincia,tipo:x.tipo,auditor:x.auditor,trabajador:x.trabajador,dni:x.dni},i)):[]);
     const incumRows=incumplimientos.map(x=>`<tr><td class="stats-text">${escStats(x.idAuditoria)}</td><td class="stats-date">${escStats(x.fechaAuditoria)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.empresa)}</td><td>${escStats(x.modulo)}</td><td>${escStats(x.apartado)}</td><td class="stats-text">${escStats(x.control)}</td><td class="stats-text">${escStats(x.descripcion)}</td><td>${escStats(x.estado)}</td><td class="stats-text">${escStats(x.responsable)}</td></tr>`).join("") || `<tr><td colspan="10" class="stats-empty">No hay incumplimientos para los filtros seleccionados.</td></tr>`;
 
     host.innerHTML = `
@@ -350,7 +354,10 @@ function exportarEstadisticasExcel() {
     })));
 
     const idsFiltradosExcel = new Set(detalle.map(x => String(x.id)));
-    const incumplimientosExcel = (Array.isArray((_estadisticasActuales || {}).incumplimientos) ? _estadisticasActuales.incumplimientos : []).filter(x => idsFiltradosExcel.has(String(x.idAuditoria)));
+    const globalIncumplimientosExcel = Array.isArray((_estadisticasActuales || {}).incumplimientos) ? _estadisticasActuales.incumplimientos : [];
+    const incumplimientosExcel = globalIncumplimientosExcel.length
+      ? globalIncumplimientosExcel.filter(x => idsFiltradosExcel.has(String(x.idAuditoria)))
+      : detalle.flatMap(x => Array.isArray(x.incumplimientos) ? x.incumplimientos.map(i => Object.assign({idAuditoria:x.id,fechaAuditoria:x.fecha,proyecto:x.proyecto,empresa:x.empresa,provincia:x.provincia,tipo:x.tipo,auditor:x.auditor,trabajador:x.trabajador,dni:x.dni}, i)) : []);
     const wsInc = XLSX.utils.json_to_sheet(incumplimientosExcel.map(x => ({
         "ID auditoría": x.idAuditoria, "Fecha auditoría": x.fechaAuditoria, "Proyecto": x.proyecto, "Empresa": x.empresa, "Provincia": x.provincia,
         "Tipo": x.tipo, "Auditor": x.auditor, "Trabajador": x.trabajador, "DNI/NIE": x.dni, "Módulo": x.modulo,
@@ -2824,8 +2831,18 @@ function validarAuditoriaAntesDeFinalizar() {
     return pendientes;
 }
 
+function normalizarProyectoAntesDeGuardar() {
+    try {
+        const campo = document.getElementById('proyecto');
+        if (campo && auditoria && auditoria.datosGenerales) auditoria.datosGenerales.proyecto = String(campo.value || '').replace(/\s+/g, ' ').trim();
+        const campoCampo = document.getElementById('campoProyecto');
+        if (campoCampo && auditoriaCampo && auditoriaCampo.datos) auditoriaCampo.datos.proyecto = String(campoCampo.value || '').replace(/\s+/g, ' ').trim();
+    } catch (e) {}
+}
+
 async function finalizarAuditoriaDesdeResumen() {
     guardarDatosGenerales();
+    normalizarProyectoAntesDeGuardar();
     const pendientes = validarAuditoriaAntesDeFinalizar();
     if (pendientes.length) {
         alert("No se puede finalizar todavía.\n\n" + pendientes.map((p, i) => (i + 1) + ". " + p).join("\n"));
@@ -12275,6 +12292,7 @@ function normalizarEmpresaAuditoriaCampo(){
 
 async function finalizarAuditoriaCampo(){
     guardarDatosCampoDesdeFormulario();
+    normalizarProyectoAntesDeGuardar();
     normalizarEmpresaAuditoriaCampo();
     const chk=estadoChequeoCampo();
     const dniPrincipal=normalizarDniNie(auditoriaCampo.datos.dniNie || "");
