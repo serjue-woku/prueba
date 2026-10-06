@@ -6266,6 +6266,9 @@ function actualizarDatoExtintor(campo, valor) {
     // La fecha de revisión/mantenimiento determina automáticamente la vigencia.
     if (campo === "fechaRevisionMantenimiento") {
         evaluarVigenciaMantenimientoExtintor();
+        // Repintar el módulo es imprescindible para que el selector de la
+        // comprobación muestre inmediatamente INCORRECTO/CORRECTO.
+        renderizarModuloExtintor();
     }
 
     extintor.estado = "EN_CURSO";
@@ -6273,8 +6276,16 @@ function actualizarDatoExtintor(campo, valor) {
 }
 
 function obtenerFechaAuditoriaExtintor() {
-    const fecha = auditoria && auditoria.datosGenerales && auditoria.datosGenerales.fecha;
+    // Si el usuario tiene abierta la pantalla de datos generales, usamos el
+    // valor actual del campo aunque todavía no se haya pulsado Guardar.
+    const campoFecha = document.getElementById("fechaAuditoria");
+    const fechaPantalla = campoFecha && campoFecha.value ? campoFecha.value : "";
+    const fechaGuardada = auditoria && auditoria.datosGenerales && auditoria.datosGenerales.fecha;
+    const fecha = fechaPantalla || fechaGuardada || "";
     if (!fecha) return null;
+    if (auditoria && auditoria.datosGenerales && fechaPantalla) {
+        auditoria.datosGenerales.fecha = fechaPantalla;
+    }
     const partes = String(fecha).split("-").map(Number);
     if (partes.length !== 3 || partes.some(n => !Number.isFinite(n))) return null;
     const d = new Date(partes[0], partes[1] - 1, partes[2]);
