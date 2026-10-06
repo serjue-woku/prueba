@@ -92,19 +92,30 @@ async function sincronizarFotografiasAuditoria(auditoriaId, tipo, fotografias) {
     for (let i = 0; i < lista.length; i++) {
         const f = lista[i];
         if (!f || !f.dataUrl) continue;
-        await appGasPost({
-            accion: "guardarFotografia",
-            auditoriaId: auditoriaId,
-            tipo: tipo || "AUDITORIA",
-            modulo: f.modulo || tipo || "GENERAL",
-            incidenciaId: f.incidenciaId || "",
-            indice: f.indice || (i + 1),
-            nombreSugerido: f.nombreSugerido || "",
-            dataUrl: f.dataUrl
-        });
-        guardadas++;
+        try {
+            await appGasPost({
+                accion: "guardarFotografia",
+                auditoriaId: auditoriaId,
+                tipo: tipo || "AUDITORIA",
+                modulo: f.modulo || tipo || "GENERAL",
+                incidenciaId: f.incidenciaId || "",
+                indice: f.indice || (i + 1),
+                nombreSugerido: f.nombreSugerido || "",
+                dataUrl: f.dataUrl
+            });
+            guardadas++;
+        } catch (_) {
+            try {
+                const ver = await verificarFotografiasRemotas(auditoriaId);
+                if (ver && Number(ver.count || 0) >= i + 1) guardadas++;
+            } catch (__) {}
+        }
     }
     return guardadas;
+}
+
+async function verificarFotografiasRemotas(auditoriaId) {
+    return appGasGet({ accion: "verificarFotografias", auditoriaId });
 }
 
 async function guardarAuditoriaYFotografias(tipo, auditoria) {
@@ -137,11 +148,24 @@ async function guardarAuditoriaYFotografias(tipo, auditoria) {
             });
             fotografiasGuardadas++;
         } catch (e) {
-            erroresFotografias.push({
-                indice: f.indice || (i + 1),
-                modulo: f.modulo || tipo || "GENERAL",
-                error: e && e.message ? e.message : String(e)
-            });
+            let confirmada = false;
+            try {
+                const ver = await verificarFotografiasRemotas(auditoria && auditoria.id ? auditoria.id : "");
+                // Como las fotografías se envían en orden, si el servidor ya
+                // registra al menos i+1 para esta auditoría, la fotografía que
+                // provocó la respuesta no válida sí llegó a guardarse.
+                confirmada = !!(ver && Number(ver.count || 0) >= i + 1);
+            } catch (_) {}
+
+            if (confirmada) {
+                fotografiasGuardadas++;
+            } else {
+                erroresFotografias.push({
+                    indice: f.indice || (i + 1),
+                    modulo: f.modulo || tipo || "GENERAL",
+                    error: e && e.message ? e.message : String(e)
+                });
+            }
         }
     }
 
@@ -180,7 +204,18 @@ async function blobADataUrl(blob) {
 
 async function guardarPdfEnDrive(blob, auditoriaId, tipo, nombre) {
     const dataUrl = await blobADataUrl(blob);
-    return appGasPost({ accion:"guardarInformePdf", auditoriaId, tipo, nombre, mimeType:"application/pdf", base64:dataUrl });
+    try {
+        return await appGasPost({ accion:"guardarInformePdf", auditoriaId, tipo, nombre, mimeType:"application/pdf", base64:dataUrl });
+    } catch (e) {
+        // Apps Script puede completar la creación del archivo y devolver una
+        // respuesta HTML al navegador. Verificamos el registro antes de
+        // informar de un falso fallo del PDF.
+        try {
+            const ver = await appGasGet({ accion: "verificarInformePdf", auditoriaId, nombre });
+            if (ver && ver.encontrado) return ver;
+        } catch (_) {}
+        throw e;
+    }
 }
 
 async function cargarEstadisticasEmpresas() {
