@@ -239,39 +239,37 @@ async function diagnosticoGoogleAppsScript() {
 function escStats(v) { return escaparValorResumen(v == null ? "" : String(v)); }
 
 let _estadisticasActuales = null;
-let _estadisticasFiltros = { empresa: "", provincia: "", tipo: "", estado: "", incidencias: "" };
+let _estadisticasFiltros = { empresa: "", provincia: "", proyecto: "", fechaDesde: "", fechaHasta: "", tipo: "", estado: "", incidencias: "" };
 
 function normalizarTextoEstadisticas(v) {
     return String(v == null ? "" : v).replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+function fechaEstadisticaToDate(v) { const s=String(v||'').trim(); if(!s) return null; const d=new Date(s+'T00:00:00'); return isNaN(d.getTime())?null:d; }
 function filtrarDetalleEstadisticas() {
-    const d = _estadisticasActuales || {};
-    const rows = Array.isArray(d.detalleAuditorias) ? d.detalleAuditorias : [];
-    const f = _estadisticasFiltros || {};
-    return rows.filter(r => {
-        if (f.empresa && !normalizarTextoEstadisticas(r.empresa).includes(normalizarTextoEstadisticas(f.empresa))) return false;
-        if (f.provincia && !normalizarTextoEstadisticas(r.provincia).includes(normalizarTextoEstadisticas(f.provincia))) return false;
-        if (f.tipo && normalizarTextoEstadisticas(r.tipo) !== normalizarTextoEstadisticas(f.tipo)) return false;
-        if (f.estado && normalizarTextoEstadisticas(r.estado) !== normalizarTextoEstadisticas(f.estado)) return false;
-        if (f.incidencias === "con" && Number(r.incidencias || 0) <= 0) return false;
-        if (f.incidencias === "sin" && Number(r.incidencias || 0) > 0) return false;
+    const d=_estadisticasActuales||{}; const rows=Array.isArray(d.detalleAuditorias)?d.detalleAuditorias:[]; const f=_estadisticasFiltros||{};
+    const desde=fechaEstadisticaToDate(f.fechaDesde), hasta=fechaEstadisticaToDate(f.fechaHasta);
+    return rows.filter(r=>{
+        if(f.empresa && !normalizarTextoEstadisticas(r.empresa).includes(normalizarTextoEstadisticas(f.empresa))) return false;
+        if(f.provincia && !normalizarTextoEstadisticas(r.provincia).includes(normalizarTextoEstadisticas(f.provincia))) return false;
+        if(f.proyecto && !normalizarTextoEstadisticas(r.proyecto).includes(normalizarTextoEstadisticas(f.proyecto))) return false;
+        if(f.tipo && normalizarTextoEstadisticas(r.tipo)!==normalizarTextoEstadisticas(f.tipo)) return false;
+        if(f.estado && normalizarTextoEstadisticas(r.estado)!==normalizarTextoEstadisticas(f.estado)) return false;
+        if(f.incidencias==='con' && Number(r.incidencias||0)<=0) return false;
+        if(f.incidencias==='sin' && Number(r.incidencias||0)>0) return false;
+        const fd=fechaEstadisticaToDate(r.fecha); if(desde && (!fd || fd<desde)) return false; if(hasta && (!fd || fd>hasta)) return false;
         return true;
     });
 }
-
-function obtenerEmpresasFiltradasEstadisticas() {
-    const d = _estadisticasActuales || {};
-    const rows = Array.isArray(d.porEmpresa) ? d.porEmpresa : [];
-    const f = normalizarTextoEstadisticas((_estadisticasFiltros || {}).empresa);
-    return f ? rows.filter(x => normalizarTextoEstadisticas(x.empresa).includes(f)) : rows;
+function obtenerEmpresasFiltradasEstadisticas(){
+    const rows=filtrarDetalleEstadisticas(), map={};
+    rows.forEach(x=>{const k=normalizarTextoEstadisticas(x.empresa); if(!k)return; if(!map[k])map[k]={empresa:x.empresa,auditorias:0,correctas:0,conIncidencias:0,trabajadores:new Set(),ultima:''}; const e=map[k]; e.auditorias++; if(Number(x.incidencias||0)>0)e.conIncidencias++;else e.correctas++; if(x.trabajador)e.trabajadores.add(normalizarTextoEstadisticas(x.trabajador)); if(!e.ultima||x.fecha>e.ultima)e.ultima=x.fecha;});
+    return Object.values(map).map(e=>({empresa:e.empresa,auditorias:e.auditorias,correctas:e.correctas,conIncidencias:e.conIncidencias,trabajadores:e.trabajadores.size,ultima:e.ultima})).sort((a,b)=>b.auditorias-a.auditorias||a.empresa.localeCompare(b.empresa));
 }
-
-function obtenerProvinciasFiltradasEstadisticas() {
-    const d = _estadisticasActuales || {};
-    const rows = Array.isArray(d.porProvincia) ? d.porProvincia : [];
-    const f = normalizarTextoEstadisticas((_estadisticasFiltros || {}).provincia);
-    return f ? rows.filter(x => normalizarTextoEstadisticas(x.provincia).includes(f)) : rows;
+function obtenerProvinciasFiltradasEstadisticas(){
+    const rows=filtrarDetalleEstadisticas(), map={};
+    rows.forEach(x=>{const k=normalizarTextoEstadisticas(x.provincia); if(!k)return; if(!map[k])map[k]={provincia:x.provincia,auditorias:0,correctas:0,conIncidencias:0}; const e=map[k];e.auditorias++;if(Number(x.incidencias||0)>0)e.conIncidencias++;else e.correctas++;});
+    return Object.values(map).sort((a,b)=>b.auditorias-a.auditorias||a.provincia.localeCompare(b.provincia));
 }
 
 function aplicarFiltrosEstadisticas() {
@@ -279,6 +277,9 @@ function aplicarFiltrosEstadisticas() {
     _estadisticasFiltros = {
         empresa: get("statsFiltroEmpresa") ? get("statsFiltroEmpresa").value : "",
         provincia: get("statsFiltroProvincia") ? get("statsFiltroProvincia").value : "",
+        proyecto: get("statsFiltroProyecto") ? get("statsFiltroProyecto").value : "",
+        fechaDesde: get("statsFiltroFechaDesde") ? get("statsFiltroFechaDesde").value : "",
+        fechaHasta: get("statsFiltroFechaHasta") ? get("statsFiltroFechaHasta").value : "",
         tipo: get("statsFiltroTipo") ? get("statsFiltroTipo").value : "",
         estado: get("statsFiltroEstado") ? get("statsFiltroEstado").value : "",
         incidencias: get("statsFiltroIncidencias") ? get("statsFiltroIncidencias").value : ""
@@ -287,8 +288,8 @@ function aplicarFiltrosEstadisticas() {
 }
 
 function limpiarFiltrosEstadisticas() {
-    _estadisticasFiltros = { empresa: "", provincia: "", tipo: "", estado: "", incidencias: "" };
-    ["statsFiltroEmpresa","statsFiltroProvincia","statsFiltroTipo","statsFiltroEstado","statsFiltroIncidencias"].forEach(id => {
+    _estadisticasFiltros = { empresa: "", provincia: "", proyecto: "", fechaDesde: "", fechaHasta: "", tipo: "", estado: "", incidencias: "" };
+    ["statsFiltroEmpresa","statsFiltroProvincia","statsFiltroProyecto","statsFiltroFechaDesde","statsFiltroFechaHasta","statsFiltroTipo","statsFiltroEstado","statsFiltroIncidencias"].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = "";
     });
     renderTablasEstadisticas();
@@ -303,7 +304,9 @@ function renderTablasEstadisticas() {
 
     const empresaRows = empresas.map(x => `<tr><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td><td class="stats-num">${Number(x.trabajadores || 0)}</td><td class="stats-date">${escStats(x.ultima || "")}</td></tr>`).join("") || `<tr><td colspan="6" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
     const provRows = provincias.map(x => `<tr><td class="stats-text">${escStats(x.provincia)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td></tr>`).join("") || `<tr><td colspan="4" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
-    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td></tr>`).join("") || `<tr><td colspan="10" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
+    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td></tr>`).join("") || `<tr><td colspan="11" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
+    const idsFiltrados=new Set(detalle.map(x=>String(x.id))); const incumplimientos=Array.isArray((_estadisticasActuales||{}).incumplimientos)?(_estadisticasActuales||{}).incumplimientos.filter(x=>idsFiltrados.has(String(x.idAuditoria))):[];
+    const incumRows=incumplimientos.map(x=>`<tr><td class="stats-text">${escStats(x.idAuditoria)}</td><td class="stats-date">${escStats(x.fechaAuditoria)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.empresa)}</td><td>${escStats(x.modulo)}</td><td>${escStats(x.apartado)}</td><td class="stats-text">${escStats(x.control)}</td><td class="stats-text">${escStats(x.descripcion)}</td><td>${escStats(x.estado)}</td><td class="stats-text">${escStats(x.responsable)}</td></tr>`).join("") || `<tr><td colspan="10" class="stats-empty">No hay incumplimientos para los filtros seleccionados.</td></tr>`;
 
     host.innerHTML = `
       <div class="card stats-card">
@@ -316,7 +319,11 @@ function renderTablasEstadisticas() {
       </div>
       <div class="card stats-card">
         <div class="stats-section-title"><div><h3>Detalle de auditorías</h3><small>${detalle.length} registros mostrados</small></div></div>
-        <div class="table-responsive stats-table-wrap"><table class="stats-table stats-detail-table"><thead><tr><th>ID auditoría</th><th>Fecha</th><th>Tipo</th><th>Auditor</th><th>Empresa</th><th>Trabajador</th><th>DNI/NIE</th><th>Estado</th><th>Incidencias</th><th>Provincia</th></tr></thead><tbody>${detalleRows}</tbody></table></div>
+        <div class="table-responsive stats-table-wrap"><table class="stats-table stats-detail-table"><thead><tr><th>ID auditoría</th><th>Fecha</th><th>Tipo</th><th>Auditor</th><th>Empresa</th><th>Proyecto</th><th>Trabajador</th><th>DNI/NIE</th><th>Estado</th><th>Incidencias</th><th>Provincia</th></tr></thead><tbody>${detalleRows}</tbody></table></div>
+      </div>
+      <div class="card stats-card">
+        <div class="stats-section-title"><div><h3>Detalle de incumplimientos por auditoría</h3><small>${incumplimientos.length} incumplimientos mostrados</small></div></div>
+        <div class="table-responsive stats-table-wrap"><table class="stats-table stats-detail-table"><thead><tr><th>ID auditoría</th><th>Fecha</th><th>Proyecto</th><th>Empresa</th><th>Módulo</th><th>Apartado</th><th>Control</th><th>Incumplimiento</th><th>Estado</th><th>Responsable</th></tr></thead><tbody>${incumRows}</tbody></table></div>
       </div>`;
 }
 
@@ -338,12 +345,21 @@ function exportarEstadisticasExcel() {
         "Provincia": x.provincia, "Auditorías": Number(x.auditorias || 0), "Correctas": Number(x.correctas || 0), "Con incidencias": Number(x.conIncidencias || 0)
     })));
     const wsDet = XLSX.utils.json_to_sheet(detalle.map(x => ({
-        "ID auditoría": x.id, "Fecha": x.fecha, "Tipo": x.tipo, "Auditor": x.auditor, "Empresa": x.empresa,
+        "ID auditoría": x.id, "Fecha": x.fecha, "Tipo": x.tipo, "Auditor": x.auditor, "Empresa": x.empresa, "Proyecto": x.proyecto,
         "Trabajador": x.trabajador, "DNI/NIE": x.dni, "Estado": x.estado, "Incidencias": Number(x.incidencias || 0), "Provincia": x.provincia
     })));
 
+    const idsFiltradosExcel = new Set(detalle.map(x => String(x.id)));
+    const incumplimientosExcel = (Array.isArray((_estadisticasActuales || {}).incumplimientos) ? _estadisticasActuales.incumplimientos : []).filter(x => idsFiltradosExcel.has(String(x.idAuditoria)));
+    const wsInc = XLSX.utils.json_to_sheet(incumplimientosExcel.map(x => ({
+        "ID auditoría": x.idAuditoria, "Fecha auditoría": x.fechaAuditoria, "Proyecto": x.proyecto, "Empresa": x.empresa, "Provincia": x.provincia,
+        "Tipo": x.tipo, "Auditor": x.auditor, "Trabajador": x.trabajador, "DNI/NIE": x.dni, "Módulo": x.modulo,
+        "Apartado": x.apartado, "Control": x.control, "Incumplimiento": x.descripcion, "Estado": x.estado,
+        "Fecha incidencia": x.fechaIncidencia, "Responsable": x.responsable, "Fecha cierre": x.fechaCierre
+    })));
+
     [
-        [wsEmp, "Por Empresa"], [wsProv, "Por Provincia"], [wsDet, "Auditorías"]
+        [wsEmp, "Por Empresa"], [wsProv, "Por Provincia"], [wsDet, "Auditorías"], [wsInc, "Incumplimientos"]
     ].forEach(([ws, name]) => {
         const ref = ws['!ref'];
         if (ref) ws['!autofilter'] = { ref };
@@ -357,7 +373,7 @@ function exportarEstadisticasExcel() {
 function renderDashboardEstadisticas(data) {
     const d = data || {};
     _estadisticasActuales = d;
-    _estadisticasFiltros = { empresa: "", provincia: "", tipo: "", estado: "", incidencias: "" };
+    _estadisticasFiltros = { empresa: "", provincia: "", proyecto: "", fechaDesde: "", fechaHasta: "", tipo: "", estado: "", incidencias: "" };
     const total = Number(d.totalAuditorias || 0);
     const cards = [
       ["📋", "Auditorías", total], ["🚐", "Vehículos", Number(d.vehiculos || 0)],
@@ -369,6 +385,9 @@ function renderDashboardEstadisticas(data) {
       <div class="card stats-filters-card"><div class="stats-section-title"><div><h3>Filtros</h3><small>Los filtros afectan a las tablas y al Excel descargado.</small></div><button type="button" class="secondary-button" onclick="limpiarFiltrosEstadisticas()">Limpiar filtros</button></div><div class="stats-filters-grid">
         <label>Empresa<input id="statsFiltroEmpresa" type="text" placeholder="Buscar empresa…" oninput="aplicarFiltrosEstadisticas()"></label>
         <label>Provincia<input id="statsFiltroProvincia" type="text" placeholder="Buscar provincia…" oninput="aplicarFiltrosEstadisticas()"></label>
+        <label>Proyecto<input id="statsFiltroProyecto" type="text" placeholder="Buscar proyecto…" oninput="aplicarFiltrosEstadisticas()"></label>
+        <label>Fecha desde<input id="statsFiltroFechaDesde" type="date" onchange="aplicarFiltrosEstadisticas()"></label>
+        <label>Fecha hasta<input id="statsFiltroFechaHasta" type="date" onchange="aplicarFiltrosEstadisticas()"></label>
         <label>Tipo<select id="statsFiltroTipo" onchange="aplicarFiltrosEstadisticas()"><option value="">Todos</option><option value="VEHICULOS_EQUIPOS">Vehículos / EPIs</option><option value="CAMPO">Auditoría de Campo</option></select></label>
         <label>Estado<select id="statsFiltroEstado" onchange="aplicarFiltrosEstadisticas()"><option value="">Todos</option><option value="FINALIZADA">Finalizada</option><option value="BORRADOR">Borrador</option></select></label>
         <label>Incidencias<select id="statsFiltroIncidencias" onchange="aplicarFiltrosEstadisticas()"><option value="">Todas</option><option value="con">Con incidencias</option><option value="sin">Sin incidencias</option></select></label>
