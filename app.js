@@ -31,18 +31,96 @@ async function appGasPost(payload) {
     const text = await r.text();
     let data;
     try { data = JSON.parse(text); } catch (_) {
-        const preview = String(text || "").replace(/\s+/g, " ").slice(0, 500);
+        const preview = String(text || "").replace(/\s+/g, " ").slice(0, 700);
         const looksHtml = /<html|<!doctype html/i.test(text);
         if (looksHtml) {
             throw new Error(
                 "Google Apps Script respondió con HTML en la acción '" + accion + "' (HTTP " + r.status + "). " +
-                "La auditoría puede haberse guardado antes de producirse este error. Compruebe el despliegue /exec. Respuesta: " + preview
+                "La petición POST no ha devuelto el JSON esperado. Es posible que el payload sea demasiado grande o que Google haya rechazado/redirigido la petición. Respuesta: " + preview
             );
         }
         throw new Error("Respuesta no válida de Google Apps Script en '" + accion + "' (HTTP " + r.status + "): " + preview);
     }
     if (!data.ok) throw new Error((data.error || "Google Apps Script devolvió un error.") + " [acción: " + accion + "]");
     return data;
+}
+
+/*
+ * Las fotografías no se envían dentro de guardarAuditoria.
+ * Esto evita que una auditoría con muchas fotos convierta el POST principal
+ * en un payload enorme. Cada fotografía se envía en una petición independiente.
+ */
+function prepararAuditoriaParaSincronizacion(auditoria) {
+    const fotos = [];
+    let contador = 0;
+
+    function clonar(valor, contexto) {
+        if (Array.isArray(valor)) return valor.map(v => clonar(v, contexto));
+        if (!valor || typeof valor !== "object") return valor;
+
+        const contextoLocal = {
+            modulo: String(valor.modulo || valor.origen || contexto.modulo || "GENERAL"),
+            incidenciaId: String(valor.incidenciaId || contexto.incidenciaId || "")
+        };
+        const out = {};
+
+        Object.keys(valor).forEach(k => {
+            const v = valor[k];
+            if ((k === "dataUrl" || k === "base64" || k === "imagen") && typeof v === "string" && /^data:image\//i.test(v)) {
+                contador++;
+                fotos.push({
+                    dataUrl: v,
+                    modulo: contextoLocal.modulo,
+                    incidenciaId: contextoLocal.incidenciaId,
+                    indice: contador,
+                    nombreSugerido: valor.nombre || valor.nombreArchivo || ""
+                });
+                return;
+            }
+            out[k] = clonar(v, contextoLocal);
+        });
+        return out;
+    }
+
+    const auditoriaLimpia = clonar(auditoria, {modulo:"GENERAL", incidenciaId:""});
+    return { auditoria: auditoriaLimpia, fotografias: fotos };
+}
+
+async function sincronizarFotografiasAuditoria(auditoriaId, tipo, fotografias) {
+    const lista = Array.isArray(fotografias) ? fotografias : [];
+    let guardadas = 0;
+    for (let i = 0; i < lista.length; i++) {
+        const f = lista[i];
+        if (!f || !f.dataUrl) continue;
+        await appGasPost({
+            accion: "guardarFotografia",
+            auditoriaId: auditoriaId,
+            tipo: tipo || "AUDITORIA",
+            modulo: f.modulo || tipo || "GENERAL",
+            incidenciaId: f.incidenciaId || "",
+            indice: f.indice || (i + 1),
+            nombreSugerido: f.nombreSugerido || "",
+            dataUrl: f.dataUrl
+        });
+        guardadas++;
+    }
+    return guardadas;
+}
+
+async function guardarAuditoriaYFotografias(tipo, auditoria) {
+    const preparado = prepararAuditoriaParaSincronizacion(auditoria);
+    const copia = preparado.auditoria;
+    const resultado = await appGasPost({
+        accion: "guardarAuditoria",
+        tipo: tipo,
+        auditoria: copia
+    });
+    const fotografiasGuardadas = await sincronizarFotografiasAuditoria(
+        auditoria && auditoria.id ? auditoria.id : "",
+        tipo,
+        preparado.fotografias
+    );
+    return { resultado, fotografiasGuardadas, fotografiasTotales: preparado.fotografias.length };
 }
 
 async function appGasGet(payload) {
@@ -2554,15 +2632,25 @@ async function finalizarAuditoriaDesdeResumen() {
     auditoria.horaFinalizacion = obtenerHoraActual();
     auditoria.finalizada = true;
     actualizarDashboard(); renderizarResumenFinalizar();
+    let auditoriaGuardada = false;
+    let fotosGuardadas = 0;
     try {
-        await appGasPost({accion:"guardarAuditoria", tipo:"VEHICULOS_EQUIPOS", auditoria});
+        const sync = await guardarAuditoriaYFotografias("VEHICULOS_EQUIPOS", auditoria);
+        auditoriaGuardada = true;
+        fotosGuardadas = sync.fotografiasGuardadas;
+    } catch (e) {
+        alert("La auditoría ha quedado FINALIZADA, pero no se pudo guardar correctamente en Google Sheets.\n\n" + (e.message || e));
+        return;
+    }
+
+    try {
         const pdfVeh = await obtenerBlobPdfAuditoriaLocal();
         await guardarPdfEnDrive(pdfVeh.blob, auditoria.id, "VEHICULOS_EQUIPOS", (auditoria.id||"AUDITORIA")+"_Auditoria_Vehiculo.pdf");
-        alert("Auditoría finalizada, guardada en Google Sheets/Drive y PDF enviado a Informes. ID: " + auditoria.id);
-        abrirDashboardEstadisticas();
+        alert("Auditoría finalizada correctamente. Google Sheets: OK. Fotografías: " + fotosGuardadas + ". PDF: OK. ID: " + auditoria.id);
     } catch (e) {
-        alert("La auditoría ha quedado FINALIZADA, pero no se pudo sincronizar con Google Sheets/Drive.\n\n" + (e.message || e));
+        alert("La auditoría y sus fotografías se han guardado correctamente, pero el PDF no pudo guardarse en la carpeta Informes.\n\n" + (e.message || e) + "\n\nLa auditoría NO se ha perdido.");
     }
+    if (auditoriaGuardada) abrirDashboardEstadisticas();
 }
 
 function renderizarResumenFinalizar() {
@@ -11985,8 +12073,9 @@ async function finalizarAuditoriaCampo(){
     auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen");
     let auditoriaGuardada = false;
     try {
-        await appGasPost({accion:"guardarAuditoria",tipo:"CAMPO",auditoria:auditoriaCampo});
+        const syncCampo = await guardarAuditoriaYFotografias("CAMPO", auditoriaCampo);
         auditoriaGuardada = true;
+        var fotosCampoGuardadas = syncCampo.fotografiasGuardadas;
     } catch(e) {
         alert("La auditoría ha quedado FINALIZADA, pero no se pudo guardar la auditoría en Google Sheets/Drive.\n\n"+(e.message||e));
         return;
@@ -11998,7 +12087,7 @@ async function finalizarAuditoriaCampo(){
         alert("Auditoría de campo guardada correctamente en Google Sheets y Drive. PDF enviado a Informes. ID: "+auditoriaCampo.id);
     } catch(e) {
         if(auditoriaGuardada){
-            alert("La auditoría ha quedado guardada correctamente en Google Sheets y las fotografías se han sincronizado, pero el PDF no pudo confirmarse en la carpeta Informes.\n\n"+(e.message||e)+"\n\nLa auditoría NO se ha perdido.");
+            alert("La auditoría ha quedado guardada correctamente en Google Sheets y se han sincronizado " + (typeof fotosCampoGuardadas === "number" ? fotosCampoGuardadas : 0) + " fotografías, pero el PDF no pudo confirmarse en la carpeta Informes.\n\n"+(e.message||e)+"\n\nLa auditoría NO se ha perdido.");
         } else {
             alert("No se pudo completar la sincronización.\n\n"+(e.message||e));
         }
