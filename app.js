@@ -274,32 +274,60 @@ function obtenerProvinciasFiltradasEstadisticas(){
 
 async function abrirAuditoriaGuardada(idAuditoria) {
     const id = String(idAuditoria || '').trim();
-    if (!id) return;
+    if (!id) {
+        alert('Indique el ID de la auditoría que desea recuperar.');
+        return null;
+    }
+
+    let ventanaRecuperacion = null;
     try {
         const r = await appGasGet({accion:'obtenerAuditoriaCompleta', auditoriaId:id});
         if (!r || !r.encontrada || !r.auditoria) {
-            alert('No se ha encontrado la auditoría '+id+' en la base de datos.');
-            return;
+            alert('No se ha encontrado la auditoría '+id+' en la base de datos.\n\nCompruebe que el ID es correcto y que la versión de Code.gs desplegada contiene la recuperación de auditorías.');
+            return null;
         }
-        // Conservamos la referencia global const auditoria y sustituimos su contenido.
+
+        // Conservamos la referencia global "auditoria" para no romper las funciones
+        // que ya tienen una referencia a este objeto.
         Object.keys(auditoria).forEach(k => delete auditoria[k]);
         Object.assign(auditoria, r.auditoria);
+
+        if (!auditoria.id) auditoria.id = id;
         if (!auditoria.datosGenerales) auditoria.datosGenerales = {};
         if (!auditoria.modulos) auditoria.modulos = {};
         if (!auditoria.modulos.epis) auditoria.modulos.epis = {estado:'EN_CURSO',controles:{}};
         if (!auditoria.modulos.epis.controles) auditoria.modulos.epis.controles = {};
         if (!Array.isArray(auditoria.incidencias)) auditoria.incidencias = [];
         if (!auditoria.firmas) auditoria.firmas = {auditor:'',trabajador:''};
+
+        // Reconstruye/migra la estructura EPI sin eliminar los datos recuperados.
         inicializarEpis();
+
+        // Dejamos constancia visual inmediata de qué auditoría está cargada.
+        try {
+            document.body.dataset.auditoriaRecuperada = id;
+        } catch (_) {}
+
         actualizarDashboard();
         mostrarPantalla('dashboard');
+
         setTimeout(() => {
-            abrirModulo('epis');
-            alert('Auditoría '+id+' recuperada correctamente. Ya puede acceder a la revisión del EPI y descargar/generar su documento oficial.');
-        }, 50);
+            try {
+                abrirModulo('epis');
+                alert('Auditoría '+id+' recuperada correctamente.\n\nAhora puede entrar en EPIs, seleccionar el elemento y generar o descargar su documento oficial de revisión.');
+            } catch (errModulo) {
+                console.error(errModulo);
+                alert('La auditoría '+id+' se ha recuperado, pero no se pudo abrir automáticamente el módulo EPIs. Puede entrar manualmente en EPIs.');
+            }
+        }, 100);
+
+        return r.auditoria;
     } catch(e) {
-        console.error(e);
-        alert('No se pudo recuperar la auditoría '+id+': '+(e.message||e));
+        console.error('[RECUPERAR AUDITORIA]', e);
+        alert('No se pudo recuperar la auditoría '+id+': '+(e && e.message ? e.message : e));
+        return null;
+    } finally {
+        if (ventanaRecuperacion && !ventanaRecuperacion.closed) ventanaRecuperacion.close();
     }
 }
 
@@ -357,6 +385,7 @@ function limpiarFiltrosEstadisticas() {
 }
 
 function renderTablasEstadisticas() {
+    instalarAccionesEpiDocumentos();
     const host = document.getElementById("statsTablasHost");
     if (!host) return;
     const empresas = obtenerEmpresasFiltradasEstadisticas();
@@ -365,7 +394,7 @@ function renderTablasEstadisticas() {
 
     const empresaRows = empresas.map(x => `<tr><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td><td class="stats-num">${Number(x.trabajadores || 0)}</td><td class="stats-date">${escStats(x.ultima || "")}</td></tr>`).join("") || `<tr><td colspan="6" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
     const provRows = provincias.map(x => `<tr><td class="stats-text">${escStats(x.provincia)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td></tr>`).join("") || `<tr><td colspan="4" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
-    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td><td><div style="display:flex;gap:5px;flex-wrap:wrap"><button type="button" class="secondary-button stats-open-audit" onclick="abrirAuditoriaGuardada(${JSON.stringify(String(x.id))})">📂 Abrir</button><button type="button" class="secondary-button stats-open-audit" onclick="descargarUltimoDocumentoRevisionAuditoria(${JSON.stringify(String(x.id))})">📄 Último EPI</button></div></td></tr>`).join("") || `<tr><td colspan="12" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
+    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td><td><div style="display:flex;gap:5px;flex-wrap:wrap"><button type="button" class="secondary-button stats-open-audit" data-auditoria-action="abrir" data-auditoria-id="${escStats(String(x.id))}">📂 Abrir</button><button type="button" class="secondary-button stats-open-audit" data-auditoria-action="ultimo-epi" data-auditoria-id="${escStats(String(x.id))}">📄 Último EPI</button></div></td></tr>`).join("") || `<tr><td colspan="12" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
     const idsFiltrados=new Set(detalle.map(x=>String(x.id)));
     const globalIncumplimientos=Array.isArray((_estadisticasActuales||{}).incumplimientos)?_estadisticasActuales.incumplimientos:[];
     const incumplimientos=globalIncumplimientos.length
@@ -439,6 +468,17 @@ function exportarEstadisticasExcel() {
     XLSX.writeFile(wb, `Estadisticas_Auditorias_SPM_${fecha}.xlsx`, { compression: true });
 }
 
+async function recuperarAuditoriaPorId() {
+    const id = prompt('Introduzca el ID de la auditoría que desea recuperar:');
+    if (id === null) return;
+    const limpio = String(id || '').trim();
+    if (!limpio) {
+        alert('Debe indicar un ID de auditoría.');
+        return;
+    }
+    await abrirAuditoriaGuardada(limpio);
+}
+
 function renderDashboardEstadisticas(data) {
     const d = data || {};
     _estadisticasActuales = d;
@@ -449,7 +489,7 @@ function renderDashboardEstadisticas(data) {
       ["🏗️", "Campo", Number(d.campo || 0)], ["⚠️", "Con incidencias", Number(d.conIncidencias || 0)],
       ["👷", "Trabajadores", Number(d.totalTrabajadores || 0)], ["🏢", "Empresas", Number(d.empresas || 0)]
     ].map(x => `<div class="card stats-kpi-card"><div class="stats-kpi-icon">${x[0]}</div><strong>${escStats(x[1])}</strong><div class="stats-kpi-value">${x[2]}</div></div>`).join("");
-    return `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Datos consolidados desde Google Sheets. Las tablas se filtran desde los controles superiores y pueden exportarse a Excel.</p></div><div class="stats-header-actions"><button type="button" class="primary-button" onclick="exportarEstadisticasExcel()">⬇ Descargar Excel</button><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div></div>
+    return `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Datos consolidados desde Google Sheets. Desde aquí puede abrir cualquier auditoría guardada o recuperar una por su ID.</p></div><div class="stats-header-actions"><button type="button" class="primary-button" onclick="exportarEstadisticasExcel()">⬇ Descargar Excel</button><button type="button" class="secondary-button" data-auditoria-action="recuperar-id" data-auditoria-id="">📂 Recuperar auditoría por ID</button><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div></div>
       <div class="module-grid stats-kpi-grid">${cards}</div>
       <div class="card stats-filters-card"><div class="stats-section-title"><div><h3>Filtros</h3><small>Los filtros afectan a las tablas y al Excel descargado.</small></div><button type="button" class="secondary-button" onclick="limpiarFiltrosEstadisticas()">Limpiar filtros</button></div><div class="stats-filters-grid">
         <label>Empresa<input id="statsFiltroEmpresa" type="text" placeholder="Buscar empresa…" oninput="aplicarFiltrosEstadisticas()"></label>
@@ -10641,17 +10681,22 @@ function textoSeguroPdf(valor) {
 }
 
 async function generarDocumentoOficialRevisionEpi(claveEpi, idUnidad) {
+    // Abrimos una ventana de forma síncrona mientras seguimos dentro del click.
+    // Así el navegador no bloquea el PDF cuando la generación/guardado tarda.
+    const ventanaPdf = (typeof window !== 'undefined') ? window.open('about:blank', '_blank') : null;
     try {
     const unidad = obtenerUnidadEpiParaDocumento(claveEpi, idUnidad);
     if (!unidad) {
+        if (ventanaPdf && !ventanaPdf.closed) ventanaPdf.close();
         alert('No se ha encontrado el EPI seleccionado para generar el documento.');
-        return;
+        return null;
     }
     const marca = unidad.campos && unidad.campos.marca ? unidad.campos.marca : '';
     const config = obtenerConfiguracionRevisionFabricante(marca, claveEpi);
     if (!config || !config.plantillaClave) {
+        if (ventanaPdf && !ventanaPdf.closed) ventanaPdf.close();
         alert('No existe una plantilla documental configurada para el fabricante y EPI seleccionados.');
-        return;
+        return null;
     }
 
     inicializarRevisionFabricante(unidad, config);
@@ -10801,31 +10846,65 @@ async function generarDocumentoOficialRevisionEpi(claveEpi, idUnidad) {
     const fecha=(revision.fechaRevision||obtenerFechaActual()).replace(/[^0-9-]/g,'')||'revision';
     const idEpi=String(unidad.id||claveEpi||'EPI').replace(/[^A-Za-z0-9_-]+/g,'_');
     const nombre='REVISION_EPI_'+normalizarFabricante(marca)+'_'+String(config.plantillaClave||claveEpi).replace(/[^A-Za-z0-9_-]+/g,'_')+'_'+fecha+'_'+idEpi+'.pdf';
-    const guardado=await appGasPost({
-        accion:'guardarInformePdf',
-        auditoriaId:auditoria&&auditoria.id||'',
-        tipo:'EPI_REVISION',
-        nombre,
-        mimeType:'application/pdf',
-        base64:await blobADataUrl(blob),
-        idEpi:String(unidad.id||claveEpi||''),
-        fabricante:normalizarFabricante(marca),
-        plantillaClave:String(config.plantillaClave||''),
-        fechaRevision:String(revision.fechaRevision||obtenerFechaActual())
-    });
+
+    // PRIMERO mostramos el PDF generado en el navegador. De esta forma, si
+    // Google Apps Script/Drive falla, el usuario no se queda con un botón que
+    // aparentemente "no hace nada": el documento ya está generado localmente.
+    const localPdfUrl = URL.createObjectURL(blob);
+    if (ventanaPdf && !ventanaPdf.closed) {
+        ventanaPdf.location.href = localPdfUrl;
+    } else {
+        window.open(localPdfUrl, '_blank');
+    }
+
+    let guardado;
+    try {
+        guardado=await appGasPost({
+            accion:'guardarInformePdf',
+            auditoriaId:auditoria&&auditoria.id||'',
+            tipo:'EPI_REVISION',
+            nombre,
+            mimeType:'application/pdf',
+            base64:await blobADataUrl(blob),
+            idEpi:String(unidad.id||claveEpi||''),
+            fabricante:normalizarFabricante(marca),
+            plantillaClave:String(config.plantillaClave||''),
+            fechaRevision:String(revision.fechaRevision||obtenerFechaActual())
+        });
+    } catch (errorDrive) {
+        console.error('[EPI] PDF generado pero no se pudo guardar en Drive:', errorDrive);
+        alert('El documento PDF se ha generado correctamente y se ha abierto en pantalla, pero NO se pudo guardar en Drive.\n\nMotivo: '+(errorDrive && errorDrive.message ? errorDrive.message : errorDrive));
+        setTimeout(() => URL.revokeObjectURL(localPdfUrl), 60000);
+        return null;
+    }
+
     revision.ultimoDocumentoUrl=guardado.url||'';
     revision.ultimoDocumentoFileId=guardado.fileId||'';
     revision.ultimoDocumentoNombre=nombre;
     revision.ultimoDocumentoFecha=new Date().toISOString();
     actualizarRevisionFabricanteEnMemoria(claveEpi,idUnidad,revision);
     renderizarModuloEpis();
+
     if(guardado.fileId){
         const downloadUrl='https://drive.google.com/uc?export=download&id='+encodeURIComponent(guardado.fileId);
-        window.open(downloadUrl,'_blank');
-    } else if(guardado.url){ window.open(guardado.url,'_blank'); }
+        // Tras un breve margen, el usuario conserva el PDF local visible y puede
+        // acceder al archivo oficial de Drive desde el registro documental.
+        setTimeout(() => {
+            try {
+                if (ventanaPdf && !ventanaPdf.closed) {
+                    ventanaPdf.document.title = 'Documento oficial de revisión EPI';
+                }
+            } catch (_) {}
+        }, 1000);
+        console.info('[EPI] Documento oficial guardado en Drive:', downloadUrl);
+    } else if(guardado.url) {
+        console.info('[EPI] Documento oficial guardado en Drive:', guardado.url);
+    }
+    setTimeout(() => URL.revokeObjectURL(localPdfUrl), 60000);
     return guardado;
     } catch (e) {
         console.error('[EPI] Error generando documento oficial:', e);
+        if (ventanaPdf && !ventanaPdf.closed) ventanaPdf.close();
         alert('No se pudo generar el documento oficial de revisión: ' + (e && e.message ? e.message : e));
         return null;
     }
@@ -10837,22 +10916,64 @@ function actualizarRevisionFabricanteEnMemoria(claveEpi,idUnidad,revision) {
 }
 
 async function descargarUltimoDocumentoRevisionEpi(claveEpi,idUnidad) {
+    const ventana = (typeof window !== 'undefined') ? window.open('about:blank', '_blank') : null;
     const unidad=obtenerUnidadEpiParaDocumento(claveEpi,idUnidad);
     const r=unidad&&unidad.revisionFabricante||{};
-    if(r.ultimoDocumentoFileId){ window.open('https://drive.google.com/uc?export=download&id='+encodeURIComponent(r.ultimoDocumentoFileId),'_blank'); return; }
-    if(r.ultimoDocumentoUrl){ window.open(r.ultimoDocumentoUrl,'_blank'); return; }
-    try {
-        const remoto=await appGasGet({accion:'obtenerUltimoDocumentoRevisionEpi',auditoriaId:auditoria&&auditoria.id||'',idEpi:String(unidad&&unidad.id||'')});
-        if(remoto&&remoto.encontrado){
-            r.ultimoDocumentoFileId=remoto.fileId||''; r.ultimoDocumentoUrl=remoto.url||''; r.ultimoDocumentoNombre=remoto.nombre||'';
-            if(r.ultimoDocumentoFileId) window.open('https://drive.google.com/uc?export=download&id='+encodeURIComponent(r.ultimoDocumentoFileId),'_blank');
-            else if(r.ultimoDocumentoUrl) window.open(r.ultimoDocumentoUrl,'_blank');
-            return;
+
+    const abrir = (url) => {
+        if (!url) return false;
+        if (ventana && !ventana.closed) {
+            ventana.location.href = url;
+            return true;
         }
-    } catch(e) {
-        console.error('[BBDD] Error al recuperar el último documento oficial de revisión:',e);
+        const w = window.open(url, '_blank');
+        return !!w;
+    };
+
+    if(r.ultimoDocumentoFileId){
+        abrir('https://drive.google.com/uc?export=download&id='+encodeURIComponent(r.ultimoDocumentoFileId));
+        return r;
     }
-    alert('Todavía no existe un documento oficial de revisión generado para este EPI.');
+    if(r.ultimoDocumentoUrl){
+        abrir(r.ultimoDocumentoUrl);
+        return r;
+    }
+
+    try {
+        const auditoriaId = String(auditoria&&auditoria.id||'').trim();
+        const idEpi = String(unidad&&unidad.id||'').trim();
+
+        if (!auditoriaId) throw new Error('No hay una auditoría cargada.');
+        if (!idEpi) throw new Error('El EPI seleccionado no tiene identificador.');
+
+        const remoto=await appGasGet({
+            accion:'obtenerUltimoDocumentoRevisionEpi',
+            auditoriaId,
+            idEpi
+        });
+
+        if(remoto&&remoto.encontrado){
+            r.ultimoDocumentoFileId=remoto.fileId||'';
+            r.ultimoDocumentoUrl=remoto.url||'';
+            r.ultimoDocumentoNombre=remoto.nombre||'';
+
+            if(r.ultimoDocumentoFileId){
+                abrir('https://drive.google.com/uc?export=download&id='+encodeURIComponent(r.ultimoDocumentoFileId));
+            } else if(r.ultimoDocumentoUrl){
+                abrir(r.ultimoDocumentoUrl);
+            }
+            return remoto;
+        }
+
+        if (ventana && !ventana.closed) ventana.close();
+        alert('Todavía no existe un documento oficial de revisión generado para este EPI.');
+        return null;
+    } catch(e) {
+        if (ventana && !ventana.closed) ventana.close();
+        console.error('[BBDD] Error al recuperar el último documento oficial de revisión:',e);
+        alert('No se pudo recuperar el último documento oficial: '+(e && e.message ? e.message : e));
+        return null;
+    }
 }
 
 function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverride) {
@@ -11089,6 +11210,72 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
     return html;
 }
 
+
+let _accionesEpiDocumentosInstaladas = false;
+
+function instalarAccionesEpiDocumentos() {
+    if (_accionesEpiDocumentosInstaladas || typeof document === 'undefined') return;
+    _accionesEpiDocumentosInstaladas = true;
+
+    document.addEventListener('click', async function (ev) {
+        const btnEpi = ev.target && ev.target.closest ? ev.target.closest('[data-epi-doc-action]') : null;
+        if (btnEpi) {
+            ev.preventDefault();
+            ev.stopPropagation();
+
+            const accion = String(btnEpi.getAttribute('data-epi-doc-action') || '');
+            const clave = String(btnEpi.getAttribute('data-epi-clave') || '');
+            const unidad = String(btnEpi.getAttribute('data-epi-unidad') || '');
+
+            if (btnEpi.disabled) return;
+            btnEpi.disabled = true;
+            const textoOriginal = btnEpi.innerHTML;
+            btnEpi.innerHTML = accion === 'generar' ? '⏳ Generando…' : '⏳ Recuperando…';
+
+            try {
+                if (accion === 'generar') {
+                    await generarDocumentoOficialRevisionEpi(clave, unidad);
+                } else if (accion === 'descargar') {
+                    await descargarUltimoDocumentoRevisionEpi(clave, unidad);
+                }
+            } catch (e) {
+                console.error('[EPI DOCUMENTO]', e);
+                alert('No se pudo completar la operación documental: ' + (e && e.message ? e.message : e));
+            } finally {
+                btnEpi.disabled = false;
+                btnEpi.innerHTML = textoOriginal;
+            }
+            return;
+        }
+
+        const btnAudit = ev.target && ev.target.closest ? ev.target.closest('[data-auditoria-action]') : null;
+        if (btnAudit) {
+            ev.preventDefault();
+            ev.stopPropagation();
+
+            const accion = String(btnAudit.getAttribute('data-auditoria-action') || '');
+            const id = String(btnAudit.getAttribute('data-auditoria-id') || '').trim();
+            if (!id) return;
+
+            btnAudit.disabled = true;
+            try {
+                if (accion === 'abrir') {
+                    await abrirAuditoriaGuardada(id);
+                } else if (accion === 'ultimo-epi') {
+                    await descargarUltimoDocumentoRevisionAuditoria(id);
+                } else if (accion === 'recuperar-id') {
+                    await recuperarAuditoriaPorId();
+                }
+            } catch (e) {
+                console.error('[AUDITORIA ACCESO]', e);
+                alert('No se pudo completar la operación: ' + (e && e.message ? e.message : e));
+            } finally {
+                btnAudit.disabled = false;
+            }
+        }
+    }, false);
+}
+
 function renderizarEstadoDocumentalEpi(marca, claveEpi, idUnidad) {
     const estado = obtenerEstadoDocumentalEpi(marca, claveEpi);
     if (estado.estado === "FABRICANTE_PENDIENTE") {
@@ -11099,12 +11286,11 @@ function renderizarEstadoDocumentalEpi(marca, claveEpi, idUnidad) {
     }
     const unidad = obtenerUnidadEpiParaDocumento(claveEpi, idUnidad || '');
     const rev = unidad && unidad.revisionFabricante ? unidad.revisionFabricante : {};
-    const argsGenerar = `${JSON.stringify(String(claveEpi))},${JSON.stringify(String(idUnidad || ''))}`;
     const ultimo = rev.ultimoDocumentoFileId || rev.ultimoDocumentoUrl;
     return `<div class="manufacturer-documentation"><strong>Plantilla oficial identificada:</strong> ${escapeHtml(estado.documentoOficial)} · <strong>Norma:</strong> ${escapeHtml(estado.norma)}<br>
         <div class="manufacturer-document-actions">
-            <button type="button" class="btn btn-primary" onclick="generarDocumentoOficialRevisionEpi(${argsGenerar})">📄 Generar documento oficial de revisión</button>
-            <button type="button" class="btn btn-secondary" onclick="descargarUltimoDocumentoRevisionEpi(${argsGenerar})">📥 Descargar último documento</button>
+            <button type="button" class="btn btn-primary epi-doc-action" data-epi-doc-action="generar" data-epi-clave="${escapeHtml(String(claveEpi))}" data-epi-unidad="${escapeHtml(String(idUnidad || ''))}">📄 Generar documento oficial de revisión</button>
+            <button type="button" class="btn btn-secondary epi-doc-action" data-epi-doc-action="descargar" data-epi-clave="${escapeHtml(String(claveEpi))}" data-epi-unidad="${escapeHtml(String(idUnidad || ''))}">📥 Descargar último documento</button>
         </div>
         <small>Documento asociado al EPI y a la auditoría. Las revisiones anteriores se conservan en Drive.</small></div>`;
 }
@@ -12868,3 +13054,5 @@ function crearPdfAuditoriaCampoLocal(){
     };
     if(document.readyState === "loading") document.addEventListener("DOMContentLoaded",init,{once:true}); else init();
 })();
+
+try { window.abrirAuditoriaGuardada=abrirAuditoriaGuardada; window.descargarUltimoDocumentoRevisionAuditoria=descargarUltimoDocumentoRevisionAuditoria; window.generarDocumentoOficialRevisionEpi=generarDocumentoOficialRevisionEpi; window.descargarUltimoDocumentoRevisionEpi=descargarUltimoDocumentoRevisionEpi; } catch (_) {}
