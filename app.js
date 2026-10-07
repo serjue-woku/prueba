@@ -272,6 +272,67 @@ function obtenerProvinciasFiltradasEstadisticas(){
     return Object.values(map).sort((a,b)=>b.auditorias-a.auditorias||a.provincia.localeCompare(b.provincia));
 }
 
+async function abrirAuditoriaGuardada(idAuditoria) {
+    const id = String(idAuditoria || '').trim();
+    if (!id) return;
+    try {
+        const r = await appGasGet({accion:'obtenerAuditoriaCompleta', auditoriaId:id});
+        if (!r || !r.encontrada || !r.auditoria) {
+            alert('No se ha encontrado la auditoría '+id+' en la base de datos.');
+            return;
+        }
+        // Conservamos la referencia global const auditoria y sustituimos su contenido.
+        Object.keys(auditoria).forEach(k => delete auditoria[k]);
+        Object.assign(auditoria, r.auditoria);
+        if (!auditoria.datosGenerales) auditoria.datosGenerales = {};
+        if (!auditoria.modulos) auditoria.modulos = {};
+        if (!auditoria.modulos.epis) auditoria.modulos.epis = {estado:'EN_CURSO',controles:{}};
+        if (!auditoria.modulos.epis.controles) auditoria.modulos.epis.controles = {};
+        if (!Array.isArray(auditoria.incidencias)) auditoria.incidencias = [];
+        if (!auditoria.firmas) auditoria.firmas = {auditor:'',trabajador:''};
+        inicializarEpis();
+        actualizarDashboard();
+        mostrarPantalla('dashboard');
+        setTimeout(() => {
+            abrirModulo('epis');
+            alert('Auditoría '+id+' recuperada correctamente. Ya puede acceder a la revisión del EPI y descargar/generar su documento oficial.');
+        }, 50);
+    } catch(e) {
+        console.error(e);
+        alert('No se pudo recuperar la auditoría '+id+': '+(e.message||e));
+    }
+}
+
+async function descargarUltimoDocumentoRevisionAuditoria(idAuditoria) {
+    try {
+        const r=await appGasGet({accion:'obtenerDocumentosRevisionEpiAuditoria',auditoriaId:String(idAuditoria||'')});
+        const docs=Array.isArray(r.documentos)?r.documentos:[];
+        if(!docs.length){
+            alert('No existe todavía un documento oficial de revisión EPI para esta auditoría. Se abrirá la auditoría para que pueda entrar en EPIs y generarlo.');
+            await abrirAuditoriaGuardada(idAuditoria);
+            return;
+        }
+        const d=docs[0];
+        if(d.fileId){
+            window.open('https://drive.google.com/uc?export=download&id='+encodeURIComponent(d.fileId),'_blank');
+        } else if(d.url){
+            window.open(d.url,'_blank');
+        } else {
+            alert('El documento está registrado pero no dispone de una URL/FILE ID válido.');
+        }
+    }catch(e){alert('No se pudo recuperar el último documento EPI: '+(e.message||e));}
+}
+
+async function verDocumentosEpiDeAuditoria(idAuditoria) {
+    try {
+        const r=await appGasGet({accion:'obtenerDocumentosRevisionEpiAuditoria',auditoriaId:String(idAuditoria||'')});
+        const docs=Array.isArray(r.documentos)?r.documentos:[];
+        if(!docs.length){ alert('No hay documentos oficiales de revisión EPI registrados para esta auditoría.\n\nAbra la auditoría y entre en el módulo EPIs para generar el documento.'); return; }
+        const texto=docs.map((d,i)=>`${i+1}. ${d.nombre}\n   EPI: ${d.idEpi} · ${d.fabricante} · ${d.fechaRevision}\n   ${d.url}`).join('\n\n');
+        alert('Documentos oficiales registrados para '+idAuditoria+':\n\n'+texto);
+    }catch(e){alert('No se pudieron recuperar los documentos EPI: '+(e.message||e));}
+}
+
 function aplicarFiltrosEstadisticas() {
     const get = id => document.getElementById(id);
     _estadisticasFiltros = {
@@ -304,7 +365,7 @@ function renderTablasEstadisticas() {
 
     const empresaRows = empresas.map(x => `<tr><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td><td class="stats-num">${Number(x.trabajadores || 0)}</td><td class="stats-date">${escStats(x.ultima || "")}</td></tr>`).join("") || `<tr><td colspan="6" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
     const provRows = provincias.map(x => `<tr><td class="stats-text">${escStats(x.provincia)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td></tr>`).join("") || `<tr><td colspan="4" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
-    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td></tr>`).join("") || `<tr><td colspan="11" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
+    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td><td><div style="display:flex;gap:5px;flex-wrap:wrap"><button type="button" class="secondary-button stats-open-audit" onclick="abrirAuditoriaGuardada(${JSON.stringify(String(x.id))})">📂 Abrir</button><button type="button" class="secondary-button stats-open-audit" onclick="descargarUltimoDocumentoRevisionAuditoria(${JSON.stringify(String(x.id))})">📄 Último EPI</button></div></td></tr>`).join("") || `<tr><td colspan="12" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
     const idsFiltrados=new Set(detalle.map(x=>String(x.id)));
     const globalIncumplimientos=Array.isArray((_estadisticasActuales||{}).incumplimientos)?_estadisticasActuales.incumplimientos:[];
     const incumplimientos=globalIncumplimientos.length
@@ -323,7 +384,7 @@ function renderTablasEstadisticas() {
       </div>
       <div class="card stats-card">
         <div class="stats-section-title"><div><h3>Detalle de auditorías</h3><small>${detalle.length} registros mostrados</small></div></div>
-        <div class="table-responsive stats-table-wrap"><table class="stats-table stats-detail-table"><thead><tr><th>ID auditoría</th><th>Fecha</th><th>Tipo</th><th>Auditor</th><th>Empresa</th><th>Proyecto</th><th>Trabajador</th><th>DNI/NIE</th><th>Estado</th><th>Incidencias</th><th>Provincia</th></tr></thead><tbody>${detalleRows}</tbody></table></div>
+        <div class="table-responsive stats-table-wrap"><table class="stats-table stats-detail-table"><thead><tr><th>ID auditoría</th><th>Fecha</th><th>Tipo</th><th>Auditor</th><th>Empresa</th><th>Proyecto</th><th>Trabajador</th><th>DNI/NIE</th><th>Estado</th><th>Incidencias</th><th>Provincia</th><th>Acceso</th></tr></thead><tbody>${detalleRows}</tbody></table></div>
       </div>
       <div class="card stats-card">
         <div class="stats-section-title"><div><h3>Detalle de incumplimientos por auditoría</h3><small>${incumplimientos.length} incumplimientos mostrados</small></div></div>
@@ -10580,6 +10641,7 @@ function textoSeguroPdf(valor) {
 }
 
 async function generarDocumentoOficialRevisionEpi(claveEpi, idUnidad) {
+    try {
     const unidad = obtenerUnidadEpiParaDocumento(claveEpi, idUnidad);
     if (!unidad) {
         alert('No se ha encontrado el EPI seleccionado para generar el documento.');
@@ -10762,6 +10824,11 @@ async function generarDocumentoOficialRevisionEpi(claveEpi, idUnidad) {
         window.open(downloadUrl,'_blank');
     } else if(guardado.url){ window.open(guardado.url,'_blank'); }
     return guardado;
+    } catch (e) {
+        console.error('[EPI] Error generando documento oficial:', e);
+        alert('No se pudo generar el documento oficial de revisión: ' + (e && e.message ? e.message : e));
+        return null;
+    }
 }
 
 function actualizarRevisionFabricanteEnMemoria(claveEpi,idUnidad,revision) {
