@@ -10,6 +10,7 @@
    ========================================================= */
 
 const APP_AUDITORIAS_GAS_URL = "https://script.google.com/macros/s/AKfycbylJ9W5lSuvTvE600uoNc53zkl7v4-Mn1T6pnfoyEKHguteV8ALLwOOPCRP_zFgVq9V/exec";
+const APP_AUDITORIAS_SHEET_ID = "1Jt7bni7N9xy-rbTtaXC2F1TF12GDOkR_Jean8h7TE_o";
 
 async function appGasPost(payload) {
     const accion = String((payload && payload.accion) || "POST");
@@ -24,7 +25,7 @@ async function appGasPost(payload) {
             cache: "no-store"
         });
     } catch (err) {
-        throw new Error("No se pudo conectar con la BBDD (" + accion + "): " + (err.message || err));
+        throw new Error("No se pudo realizar la petición a Google Apps Script (" + accion + "): " + (err.message || err));
     }
 
     const text = await r.text();
@@ -34,13 +35,13 @@ async function appGasPost(payload) {
         const looksHtml = /<html|<!doctype html/i.test(text);
         if (looksHtml) {
             throw new Error(
-                "La BBDD respondió con HTML en la acción '" + accion + "' (HTTP " + r.status + "). " +
+                "Google Apps Script respondió con HTML en la acción '" + accion + "' (HTTP " + r.status + "). " +
                 "La petición POST no ha devuelto el JSON esperado. Es posible que el payload sea demasiado grande o que Google haya rechazado/redirigido la petición. Respuesta: " + preview
             );
         }
-        throw new Error("Respuesta no válida de la BBDD en '" + accion + "' (HTTP " + r.status + "): " + preview);
+        throw new Error("Respuesta no válida de Google Apps Script en '" + accion + "' (HTTP " + r.status + "): " + preview);
     }
-    if (!data.ok) throw new Error((data.error || "La BBDD devolvió un error.") + " [acción: " + accion + "]");
+    if (!data.ok) throw new Error((data.error || "Google Apps Script devolvió un error.") + " [acción: " + accion + "]");
     return data;
 }
 
@@ -185,10 +186,10 @@ async function appGasGet(payload) {
     try { data = JSON.parse(text); } catch (_) {
         const looksHtml = /^\s*<!doctype html|^\s*<html/i.test(text);
         throw new Error(looksHtml
-            ? "La BBDD ha devuelto una respuesta no válida al consultar las estadísticas. Compruebe la conexión con la BBDD."
-            : "Respuesta no válida de la BBDD: " + text.slice(0, 300));
+            ? "Google Apps Script ha devuelto HTML en la consulta GET de estadísticas. Comprueba la versión desplegada."
+            : "Respuesta no válida de Google Apps Script: " + text.slice(0, 300));
     }
-    if (!data.ok) throw new Error(data.error || "La BBDD devolvió un error.");
+    if (!data.ok) throw new Error(data.error || "Google Apps Script devolvió un error.");
     return data;
 }
 
@@ -303,7 +304,7 @@ function renderTablasEstadisticas() {
 
     const empresaRows = empresas.map(x => `<tr><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td><td class="stats-num">${Number(x.trabajadores || 0)}</td><td class="stats-date">${escStats(x.ultima || "")}</td></tr>`).join("") || `<tr><td colspan="6" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
     const provRows = provincias.map(x => `<tr><td class="stats-text">${escStats(x.provincia)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td></tr>`).join("") || `<tr><td colspan="4" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
-    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td><td><button type="button" class="secondary-button" onclick="abrirAuditoriaRecuperada('${String(x.id||'').replace(/'/g,"\'")}')">📂 Abrir</button></td></tr>`).join("") || `<tr><td colspan="12" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
+    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td></tr>`).join("") || `<tr><td colspan="11" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
     const idsFiltrados=new Set(detalle.map(x=>String(x.id)));
     const globalIncumplimientos=Array.isArray((_estadisticasActuales||{}).incumplimientos)?_estadisticasActuales.incumplimientos:[];
     const incumplimientos=globalIncumplimientos.length
@@ -322,7 +323,7 @@ function renderTablasEstadisticas() {
       </div>
       <div class="card stats-card">
         <div class="stats-section-title"><div><h3>Detalle de auditorías</h3><small>${detalle.length} registros mostrados</small></div></div>
-        <div class="table-responsive stats-table-wrap"><table class="stats-table stats-detail-table"><thead><tr><th>ID auditoría</th><th>Fecha</th><th>Tipo</th><th>Auditor</th><th>Empresa</th><th>Proyecto</th><th>Trabajador</th><th>DNI/NIE</th><th>Estado</th><th>Incidencias</th><th>Provincia</th><th>Acciones</th></tr></thead><tbody>${detalleRows}</tbody></table></div>
+        <div class="table-responsive stats-table-wrap"><table class="stats-table stats-detail-table"><thead><tr><th>ID auditoría</th><th>Fecha</th><th>Tipo</th><th>Auditor</th><th>Empresa</th><th>Proyecto</th><th>Trabajador</th><th>DNI/NIE</th><th>Estado</th><th>Incidencias</th><th>Provincia</th></tr></thead><tbody>${detalleRows}</tbody></table></div>
       </div>
       <div class="card stats-card">
         <div class="stats-section-title"><div><h3>Detalle de incumplimientos por auditoría</h3><small>${incumplimientos.length} incumplimientos mostrados</small></div></div>
@@ -387,7 +388,7 @@ function renderDashboardEstadisticas(data) {
       ["🏗️", "Campo", Number(d.campo || 0)], ["⚠️", "Con incidencias", Number(d.conIncidencias || 0)],
       ["👷", "Trabajadores", Number(d.totalTrabajadores || 0)], ["🏢", "Empresas", Number(d.empresas || 0)]
     ].map(x => `<div class="card stats-kpi-card"><div class="stats-kpi-icon">${x[0]}</div><strong>${escStats(x[1])}</strong><div class="stats-kpi-value">${x[2]}</div></div>`).join("");
-    return `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Datos consolidados desde la BBDD. Las tablas se filtran desde los controles superiores y pueden exportarse a Excel.</p></div><div class="stats-header-actions"><button type="button" class="primary-button" onclick="exportarEstadisticasExcel()">⬇ Descargar Excel</button><button type="button" class="primary-button" onclick="recuperarAuditoriaPorId()">📂 Recuperar auditoría por ID</button><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú principal</button></div></div>
+    return `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Datos consolidados desde Google Sheets. Las tablas se filtran desde los controles superiores y pueden exportarse a Excel.</p></div><div class="stats-header-actions"><button type="button" class="primary-button" onclick="exportarEstadisticasExcel()">⬇ Descargar Excel</button><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div></div>
       <div class="module-grid stats-kpi-grid">${cards}</div>
       <div class="card stats-filters-card"><div class="stats-section-title"><div><h3>Filtros</h3><small>Los filtros afectan a las tablas y al Excel descargado.</small></div><button type="button" class="secondary-button" onclick="limpiarFiltrosEstadisticas()">Limpiar filtros</button></div><div class="stats-filters-grid">
         <label>Empresa<input id="statsFiltroEmpresa" type="text" placeholder="Buscar empresa…" oninput="aplicarFiltrosEstadisticas()"></label>
@@ -405,7 +406,7 @@ function renderDashboardEstadisticas(data) {
 async function abrirDashboardEstadisticas() {
     const sec = document.getElementById("dashboardEstadisticas");
     if (!sec) return;
-    sec.innerHTML = `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Cargando datos de la BBDD…</p></div><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div><div class="card">Consultando datos…</div>`;
+    sec.innerHTML = `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Cargando datos de Google Sheets…</p></div><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div><div class="card">Consultando datos…</div>`;
     mostrarPantalla("dashboardEstadisticas");
     try { const data = await cargarEstadisticasEmpresas(); sec.innerHTML = renderDashboardEstadisticas(data); renderTablasEstadisticas(); }
     catch(e) { sec.innerHTML = `<div class="card"><h3>No se pudieron cargar las estadísticas</h3><p>${escStats(e.message || e)}</p><button class="secondary-button" onclick="abrirDashboardEstadisticas()">Reintentar</button></div>`; }
@@ -2506,7 +2507,7 @@ function asegurarBotonDashboardModulo() {
         const barra = document.createElement("div");
         barra.setAttribute("data-boton-dashboard-modulo", "top");
         barra.style.cssText = "display:flex;justify-content:flex-start;gap:10px;margin:0 0 12px 0;";
-        barra.innerHTML = `<button type="button" class="btn-secondary secondary-button" onclick="volverDashboard()">← Volver al Dashboard</button><button type="button" class="btn-secondary secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú principal</button>`;
+        barra.innerHTML = `<button type="button" class="btn-secondary secondary-button" onclick="volverDashboard()">Volver al Dashboard</button>`;
         contenido.insertBefore(barra, contenido.firstChild);
         top = barra;
     }
@@ -2515,7 +2516,7 @@ function asegurarBotonDashboardModulo() {
         const barra = document.createElement("div");
         barra.setAttribute("data-boton-dashboard-modulo", "bottom");
         barra.style.cssText = "display:flex;justify-content:flex-start;gap:10px;margin:16px 0 0 0;";
-        barra.innerHTML = `<button type="button" class="btn-secondary secondary-button" onclick="volverDashboard()">← Volver al Dashboard</button><button type="button" class="btn-secondary secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú principal</button>`;
+        barra.innerHTML = `<button type="button" class="btn-secondary secondary-button" onclick="volverDashboard()">Volver al Dashboard</button>`;
         contenido.appendChild(barra);
     }
 }
@@ -2538,14 +2539,86 @@ function inicializarBotonDashboardTodosLosModulos() {
    VOLVER DASHBOARD
    ========================================================= */
 
+/* =========================================================
+   NAVEGACIÓN SEGURA / RECUPERACIÓN DE AUDITORÍAS
+   ---------------------------------------------------------
+   La navegación al menú principal NO puede depender de que exista
+   una auditoría válida. Si una recuperación falla o la auditoría
+   queda temporalmente a null, el usuario debe poder salir siempre.
+   ========================================================= */
+
+function volverMenuPrincipal() {
+    try {
+        const menu = document.getElementById("auditoriasInicio");
+        if (menu) {
+            mostrarPantalla("auditoriasInicio");
+            return true;
+        }
+
+        // Compatibilidad con versiones en las que todavía no existe
+        // el selector independiente de auditorías.
+        const dashboard = document.getElementById("dashboard");
+        if (dashboard) {
+            mostrarPantalla("dashboard");
+            return true;
+        }
+
+        return false;
+    } catch (e) {
+        console.error("Error al volver al menú principal:", e);
+        return false;
+    }
+}
+
+function manejarFalloRecuperacionAuditoria(error, opciones) {
+    const opts = opciones || {};
+    const mensaje = error && error.message ? error.message : String(error || "No se pudo recuperar la auditoría.");
+
+    console.error("Fallo en recuperación de auditoría:", error);
+
+    // Evita cualquier estado de recuperación que pueda volver a dispararse.
+    try {
+        if (typeof window !== "undefined") {
+            window._recuperacionAuditoriaEnCurso = false;
+            window._ultimaRecuperacionAuditoriaError = mensaje;
+        }
+    } catch (_) {}
+
+    if (opts.mostrarAviso !== false) {
+        alert("No se ha podido recuperar la auditoría.\n\n" + mensaje +
+              "\n\nPuede volver al menú principal y continuar con otra auditoría.");
+    }
+
+    // MUY IMPORTANTE: no volver a invocar la función de recuperación.
+    // La salida es siempre unidireccional hacia el menú principal.
+    volverMenuPrincipal();
+    return null;
+}
+
 function volverDashboard() {
+    try {
+        // Si no existe una auditoría en memoria, el Dashboard de módulos
+        // no debe intentar acceder a auditoria.modulos ni provocar otro error.
+        if (typeof auditoria === "undefined" || !auditoria) {
+            volverMenuPrincipal();
+            return;
+        }
 
-    mostrarPantalla(
-        "dashboard"
-    );
+        mostrarPantalla("dashboard");
 
-
-    actualizarDashboard();
+        // La actualización del Dashboard es secundaria a la navegación.
+        // Un fallo aquí NUNCA debe bloquear el acceso al menú.
+        try {
+            if (typeof actualizarDashboard === "function") {
+                actualizarDashboard();
+            }
+        } catch (e) {
+            console.error("No se pudo actualizar el Dashboard:", e);
+        }
+    } catch (e) {
+        console.error("Error de navegación al Dashboard:", e);
+        volverMenuPrincipal();
+    }
 }
 
 
@@ -2864,7 +2937,7 @@ async function finalizarAuditoriaDesdeResumen() {
         fotosTotales = sync.fotografiasTotales;
         erroresFotografias = sync.erroresFotografias || [];
     } catch (e) {
-        alert("La auditoría no pudo guardarse en la BBDD.\n\n" + (e.message || e));
+        alert("La auditoría no pudo guardarse en Google Sheets.\n\n" + (e.message || e));
         return;
     }
 
@@ -2874,12 +2947,12 @@ async function finalizarAuditoriaDesdeResumen() {
         const avisoFotos = erroresFotografias.length
             ? "\nFotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas. " + erroresFotografias.length + " con error."
             : "\nFotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas.";
-        alert("Auditoría finalizada correctamente. BBDD: OK." + avisoFotos + "\nPDF: OK. ID: " + auditoria.id);
+        alert("Auditoría finalizada correctamente. Google Sheets: OK." + avisoFotos + "\nPDF: OK. ID: " + auditoria.id);
     } catch (e) {
         const avisoFotos = erroresFotografias.length
             ? "Fotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas (" + erroresFotografias.length + " con error)."
             : "Fotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas.";
-        alert("La auditoría se ha guardado correctamente en la BBDD. " + avisoFotos + "\nPero el PDF no pudo guardarse en la carpeta Informes.\n\n" + (e.message || e) + "\n\nLa auditoría NO se ha perdido.");
+        alert("La auditoría se ha guardado correctamente en Google Sheets. " + avisoFotos + "\nPero el PDF no pudo guardarse en la carpeta Informes.\n\n" + (e.message || e) + "\n\nLa auditoría NO se ha perdido.");
     }
     if (auditoriaGuardada) abrirDashboardEstadisticas();
 }
@@ -10712,16 +10785,15 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
     return html;
 }
 
-function renderizarEstadoDocumentalEpi(marca, claveEpi, idUnidad) {
+function renderizarEstadoDocumentalEpi(marca, claveEpi) {
     const estado = obtenerEstadoDocumentalEpi(marca, claveEpi);
-    const idDoc = String(idUnidad || "");
     if (estado.estado === "FABRICANTE_PENDIENTE") {
         return `<div class="manufacturer-documentation pending"><strong>Documentación de fabricante:</strong> pendiente de indicar marca/fabricante.</div>`;
     }
     if (estado.estado === "SIN_PLANTILLA_CONFIGURADA") {
-        return `<div class="manufacturer-documentation pending"><strong>Documentación de fabricante:</strong> no hay una plantilla oficial configurada para <strong>${escapeHtml(marca)}</strong> en este tipo de EPI.</div>`;
+        return `<div class="manufacturer-documentation pending"><strong>Documentación de fabricante:</strong> no hay todavía una plantilla oficial configurada para <strong>${escapeHtml(marca)}</strong> en este tipo de EPI. Se mantienen los controles generales y no se genera ningún documento oficial automáticamente.</div>`;
     }
-    return `<div class="manufacturer-documentation"><strong>Plantilla oficial identificada:</strong> ${escapeHtml(estado.documentoOficial)} · <strong>Norma:</strong> ${escapeHtml(estado.norma)}<br><small>Clave documental: ${escapeHtml(estado.plantillaClave)}</small><div class="manufacturer-document-actions"><button type="button" class="secondary-button" onclick="generarDocumentoOficialRevisionEpi('${String(claveEpi).replace(/'/g,"\'")}','${idDoc.replace(/'/g,"\'")}')">📄 Generar documento oficial de revisión</button><button type="button" class="secondary-button" onclick="descargarUltimoDocumentoRevisionEpi('${String(claveEpi).replace(/'/g,"\'")}','${idDoc.replace(/'/g,"\'")}')">📥 Descargar último documento</button></div><div id="estadoDocumentoEpi_${String(claveEpi).replace(/[^A-Za-z0-9_-]/g,'_')}_${idDoc.replace(/[^A-Za-z0-9_-]/g,'_')}" class="manufacturer-document-status"></div></div>`;
+    return `<div class="manufacturer-documentation"><strong>Plantilla oficial identificada:</strong> ${escapeHtml(estado.documentoOficial)} · <strong>Norma:</strong> ${escapeHtml(estado.norma)}<br><small>Clave documental: ${escapeHtml(estado.plantillaClave)}. Los controles oficiales se utilizarán posteriormente para generar el documento; esta fase no genera PDF.</small></div>`;
 }
 
 function obtenerControlesEpis() {
@@ -11045,7 +11117,7 @@ function renderizarModuloEpis() {
             html += `</div></div>`;
         }
 
-        html += renderizarEstadoDocumentalEpi(controlEpi.campos ? controlEpi.campos.marca : "", claveEpi, controlEpi.id);
+        html += renderizarEstadoDocumentalEpi(controlEpi.campos ? controlEpi.campos.marca : "", claveEpi);
 
         if (controlEpi.estadoElemento === "ACTIVO") {
             // El veredicto del EPI se calcula antes de pintar la interfaz.
@@ -11113,7 +11185,6 @@ function renderizarUnidadEpiMultiple(claveEpi, unidad) {
         html += `<div class="field"><label>${escapeHtml(definicion.campos[campo])}${campo === "descripcionElemento" ? " *" : ""}</label><input type="${esFecha ? "date" : "text"}" value="${escapeHtml(unidad.campos[campo] || "")}" ${eventoCampo}></div>`;
     });
     html += `</div></div>`;
-    html += renderizarEstadoDocumentalEpi(unidad.campos ? unidad.campos.marca : "", claveEpi, unidad.id);
     if (unidad.estadoElemento === "ACTIVO") {
         // Igual que en los EPI únicos, el veredicto se sincroniza antes del
         // render para que APTO aparezca realmente seleccionado en pantalla.
@@ -11815,6 +11886,9 @@ function instalarDashboardAuditoriasIndependientes() {
                 <p>Seleccione el tipo de auditoría que desea realizar.</p>
             </div>
         </div>
+        <div style="margin-bottom:12px;display:flex;justify-content:flex-start;gap:8px;flex-wrap:wrap;">
+            <button type="button" class="secondary-button" onclick="volverMenuPrincipal()">← Menú principal</button>
+        </div>
         <div class="module-grid">
             <button type="button" class="module-card" onclick="abrirAuditoriaVehiculosDesdeInicio()">
                 <span class="module-icon">🚐</span>
@@ -11831,18 +11905,18 @@ function instalarDashboardAuditoriasIndependientes() {
     main.insertBefore(sec, main.firstChild);
     const stats = document.createElement("section");
     stats.id = "dashboardEstadisticas"; stats.className = "screen";
-    stats.innerHTML = `<div class="card"><h2>Estadísticas</h2><p>Pulse para cargar las estadísticas desde la BBDD.</p></div>`;
+    stats.innerHTML = `<div class="card"><h2>Estadísticas</h2><p>Pulse para cargar las estadísticas desde Google Sheets.</p></div>`;
     main.insertBefore(stats, document.getElementById("modulo") || null);
     const inc = document.createElement("section");
     inc.id = "gestionIncidencias"; inc.className = "screen";
-    inc.innerHTML = `<div class="card"><h2>Gestión de incidencias</h2><p>Pulse para cargar las incidencias desde la BBDD.</p></div>`;
+    inc.innerHTML = `<div class="card"><h2>Gestión de incidencias</h2><p>Pulse para cargar las incidencias desde Google Sheets.</p></div>`;
     main.insertBefore(inc, document.getElementById("modulo") || null);
     if (!document.getElementById("estilosGestionIncidencias")) {
       const stInc=document.createElement("style"); stInc.id="estilosGestionIncidencias"; stInc.textContent=`
         .inc-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.inc-kpi{padding:16px;border:1px solid #ccc;border-radius:8px;background:#fff;text-align:center}.inc-kpi strong{display:block;font-size:1.8rem}.inc-table td,.inc-table th{padding:7px;border-bottom:1px solid #ddd;vertical-align:top}.inc-table th{white-space:nowrap}.inc-actions{display:flex;gap:6px;flex-wrap:wrap}.inc-badge{display:inline-block;padding:3px 8px;border-radius:12px;font-size:.78rem;font-weight:700;background:#eee}.inc-evidence-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.inc-evidence-card{border:1px solid #ccc;border-radius:7px;padding:8px;background:#fff}.inc-evidence-card img{width:100%;height:150px;object-fit:contain;background:#f5f5f5}.inc-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.inc-detail-grid .full{grid-column:1/-1}.inc-filter-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.inc-filter-grid label{display:flex;flex-direction:column;gap:4px}.inc-small{font-size:.82rem;color:#666}@media(max-width:900px){.inc-kpi-grid{grid-template-columns:repeat(2,1fr)}.inc-filter-grid,.inc-detail-grid{grid-template-columns:1fr}.inc-evidence-grid{grid-template-columns:1fr}.inc-detail-grid .full{grid-column:auto}}`;
       document.head.appendChild(stInc);
     }
-    sec.querySelector(".module-grid").insertAdjacentHTML("beforeend", `<button type="button" class="module-card summary-card" onclick="abrirDashboardEstadisticas()"><span class="module-icon">📊</span><strong>Estadísticas</strong><span class="status status-gray">BBDD</span></button><button type="button" class="module-card summary-card" onclick="abrirPanelEmpresas()"><span class="module-icon">🏢</span><strong>Empresas</strong><span class="status status-gray">Catálogo automático</span></button><button type="button" class="module-card summary-card" onclick="abrirGestionIncidencias()"><span class="module-icon">⚠️</span><strong>Gestión de incidencias</strong><span id="gestionIncidenciasBadge" class="status status-gray">Cargando…</span></button>`);
+    sec.querySelector(".module-grid").insertAdjacentHTML("beforeend", `<button type="button" class="module-card summary-card" onclick="abrirDashboardEstadisticas()"><span class="module-icon">📊</span><strong>Estadísticas</strong><span class="status status-gray">Google Sheets</span></button><button type="button" class="module-card summary-card" onclick="abrirPanelEmpresas()"><span class="module-icon">🏢</span><strong>Empresas</strong><span class="status status-gray">Catálogo automático</span></button><button type="button" class="module-card summary-card" onclick="abrirGestionIncidencias()"><span class="module-icon">⚠️</span><strong>Gestión de incidencias</strong><span id="gestionIncidenciasBadge" class="status status-gray">Cargando…</span></button>`);
     const tituloHeader = document.querySelector(".app-header h1");
     if (tituloHeader) tituloHeader.textContent = "Auditorías SPM Grupo Zener";
     inicializarAuditoriaCampo();
@@ -11886,10 +11960,15 @@ function fileToDataUrlInc(file){return new Promise((res,rej)=>{const rd=new File
 async function subirEvidenciasIncidencia(id,tipo,files){const x=buscarIncidenciaGestion(id);if(!x)return;const lista=Array.from(files||[]);if(!lista.length)return;let ok=0;for(const file of lista){try{const dataUrl=await fileToDataUrlInc(file);await appGasPost({accion:'guardarEvidenciaIncidencia',incidenciaId:id,auditoriaId:x.idAuditoria,tipo,nombreSugerido:file.name,dataUrl});ok++;}catch(e){console.error(e);alert('No se pudo subir '+file.name+': '+(e.message||e));}}try{const d=await cargarIncidenciasGestion();const nuevo=d.incidencias.find(i=>String(i.id)===String(id));if(nuevo)abrirDetalleIncidenciaGestion(id);alert(ok+' evidencia(s) subida(s) correctamente.');}catch(e){alert(ok+' evidencia(s) subida(s). No se pudo refrescar la lista.');}}
 
 function abrirAuditoriaVehiculosDesdeInicio() {
-    // No se reinicia ni se borra la auditoría existente.
-    mostrarPantalla("datosGenerales");
-    inicializarCampoDniNie();
-    instalarBotonMenuInicialVehiculos();
+    try {
+        // No se reinicia ni se borra la auditoría existente.
+        mostrarPantalla("datosGenerales");
+        inicializarCampoDniNie();
+        instalarBotonMenuInicialVehiculos();
+    } catch (e) {
+        console.error("No se pudo abrir Auditoría de Vehículos y Equipos:", e);
+        volverMenuPrincipal();
+    }
 }
 
 function volverSelectorAuditorias() {
@@ -12361,7 +12440,7 @@ async function finalizarAuditoriaCampo(){
         fotosCampoTotales = syncCampo.fotografiasTotales;
         erroresFotosCampo = syncCampo.erroresFotografias || [];
     } catch(e) {
-        alert("La auditoría de campo no pudo guardarse en la BBDD.\n\n"+(e.message||e));
+        alert("La auditoría de campo no pudo guardarse en Google Sheets.\n\n"+(e.message||e));
         return;
     }
 
@@ -12371,13 +12450,13 @@ async function finalizarAuditoriaCampo(){
         const avisoFotos = erroresFotosCampo.length
             ? " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
             : " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
-        alert("Auditoría de campo guardada correctamente en la BBDD." + avisoFotos + " PDF enviado a Informes. ID: "+auditoriaCampo.id);
+        alert("Auditoría de campo guardada correctamente en Google Sheets y Drive." + avisoFotos + " PDF enviado a Informes. ID: "+auditoriaCampo.id);
     } catch(e) {
         if(auditoriaGuardada){
             const avisoFotos = erroresFotosCampo.length
                 ? "Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
                 : "Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
-            alert("La auditoría de campo ha quedado guardada correctamente en la BBDD. " + avisoFotos + "\nPero el PDF no pudo confirmarse en la carpeta Informes.\n\n"+(e.message||e)+"\n\nLa auditoría NO se ha perdido.");
+            alert("La auditoría de campo ha quedado guardada correctamente en Google Sheets. " + avisoFotos + "\nPero el PDF no pudo confirmarse en la carpeta Informes.\n\n"+(e.message||e)+"\n\nLa auditoría NO se ha perdido.");
         } else {
             alert("No se pudo completar la sincronización.\n\n"+(e.message||e));
         }
@@ -12484,134 +12563,3 @@ function crearPdfAuditoriaCampoLocal(){
     };
     if(document.readyState === "loading") document.addEventListener("DOMContentLoaded",init,{once:true}); else init();
 })();
-
-
-/* =========================================================
-   V18 — RECUPERACIÓN CENTRALIZADA DESDE BBDD Y DOCUMENTOS EPI
-   ========================================================= */
-
-function prepararAuditoriaRecuperada(datos) {
-    if (!datos || typeof datos !== "object") throw new Error("La BBDD no devolvió una auditoría válida.");
-    const actual = JSON.parse(JSON.stringify(auditoria));
-    const recuperada = JSON.parse(JSON.stringify(datos));
-    Object.assign(auditoria, actual, recuperada);
-    auditoria.id = String(recuperada.id || auditoria.id);
-    auditoria.estado = recuperada.estado || "EN_CURSO";
-    auditoria.datosGenerales = Object.assign({}, actual.datosGenerales || {}, recuperada.datosGenerales || recuperada.datos || {});
-    auditoria.modulos = Object.assign({}, actual.modulos || {}, recuperada.modulos || {});
-    auditoria.incidencias = Array.isArray(recuperada.incidencias) ? recuperada.incidencias : [];
-    auditoria.fotografias = Array.isArray(recuperada.fotografias) ? recuperada.fotografias : [];
-    auditoria.firmas = Object.assign({}, actual.firmas || {}, recuperada.firmas || {});
-    if (!auditoria.modulos.epis) auditoria.modulos.epis = { estado:"NO_INICIADO", controles:{} };
-    if (!auditoria.modulos.radio) auditoria.modulos.radio = { estado:"NO_INICIADO", unidades:{} };
-    // Una auditoría que contiene EPIs reales nunca se presenta como NO APLICA por pérdida de datos generales.
-    const tieneEpis = auditoria.modulos.epis && auditoria.modulos.epis.controles && Object.values(auditoria.modulos.epis.controles).some(c => {
-        if (!c) return false;
-        if (c.unidades && typeof c.unidades === "object" && Object.keys(c.unidades).length) return true;
-        const campos = c.campos || {};
-        return Object.values(campos).some(v => String(v || "").trim()) || !!c.revisionFabricante;
-    });
-    if (tieneEpis && !auditoria.datosGenerales.actividad) auditoria.datosGenerales.actividad = "TELECOMUNICACIONES";
-    if (tieneEpis && auditoria.modulos.epis.estado === "NO_APLICA") auditoria.modulos.epis.estado = "EN_CURSO";
-    inicializarEpis();
-    try { actualizarDashboard(); } catch (_) {}
-}
-
-async function abrirAuditoriaRecuperada(id) {
-    const auditoriaId = String(id || "").trim();
-    if (!auditoriaId) return recuperarAuditoriaPorId();
-    mostrarPantalla("modulo");
-    const titulo = document.getElementById("tituloModulo");
-    const contenido = document.getElementById("contenidoModulo");
-    if (titulo) titulo.textContent = "RECUPERAR AUDITORÍA";
-    if (contenido) contenido.innerHTML = `<div class="card"><p>Recuperando la auditoría <strong>${escapeHtml(auditoriaId)}</strong> desde la BBDD…</p></div>`;
-    try {
-        const data = await appGasGet({accion:"obtenerAuditoria", auditoriaId});
-        prepararAuditoriaRecuperada(data.auditoria);
-        window._auditoriaRecuperada = true;
-        actualizarDashboard();
-        mostrarPantalla("dashboard");
-        alert("Auditoría " + auditoriaId + " recuperada correctamente desde la BBDD.");
-    } catch (e) {
-        console.error(e);
-        alert("No se ha podido recuperar la auditoría desde la BBDD.\n\n" + (e.message || e));
-    }
-}
-
-async function recuperarAuditoriaPorId() {
-    const id = prompt("Introduzca el ID de la auditoría que desea recuperar:", "");
-    if (id === null) return;
-    const auditoriaId = String(id || "").trim();
-    if (!auditoriaId) { alert("Debe indicar un ID de auditoría."); return; }
-    await abrirAuditoriaRecuperada(auditoriaId);
-}
-
-async function generarDocumentoOficialRevisionEpi(claveEpi, idUnidad) {
-    try {
-        const definicion = obtenerEstructuraEpis()[claveEpi];
-        if (!definicion) throw new Error("No se ha encontrado la definición del EPI.");
-        const control = auditoria.modulos.epis && auditoria.modulos.epis.controles ? auditoria.modulos.epis.controles[claveEpi] : null;
-        const unidad = definicion.multiple ? (control && control.unidades ? control.unidades[idUnidad] : null) : control;
-        if (!unidad) throw new Error("No se ha encontrado el EPI que se desea documentar.");
-        const campos = unidad.campos || {};
-        const revision = unidad.revisionFabricante || {};
-        const config = obtenerConfiguracionPlantillaFabricante(campos.marca || revision.fabricante || "", claveEpi);
-        if (!config) throw new Error("No existe una plantilla oficial configurada para este fabricante y tipo de EPI.");
-        if (!revision.resultado) sincronizarVeredictoEpi(claveEpi, unidad, true);
-        if (!revision.resultado) throw new Error("Debe indicar el veredicto de la revisión del fabricante antes de generar el documento.");
-        const jsPDF = await cargarJsPdfLocal();
-        const doc = new jsPDF({orientation:"p",unit:"mm",format:"a4"});
-        const fuente = registrarFuentesSegoeUI(doc);
-        const M=10, W=190; let y=15, pagina=1;
-        const logo = typeof obtenerLogoFabricanteRevision === "function" ? obtenerLogoFabricanteRevision(config.fabricanteConfigurado || config.fabricanteNombre) : null;
-        try { if (logo) doc.addImage(logo,"JPEG",160,6,35,12,"LOGO_EPI","FAST"); } catch (_) {}
-        doc.setFont(fuente,"bold"); doc.setFontSize(13); doc.text("DOCUMENTO OFICIAL DE REVISIÓN EPI",M,y); y+=7;
-        doc.setFont(fuente,"normal"); doc.setFontSize(8); doc.text(String(config.documentoOficial || config.tipoOficial || "Revisión de fabricante"),M,y); y+=5;
-        doc.text("Auditoría: "+auditoria.id+"   ·   EPI: "+String(definicion.nombre||claveEpi),M,y); y+=5;
-        doc.text("Fabricante: "+String(config.fabricanteNombre||campos.marca||"")+"   ·   Plantilla: "+String(config.plantillaClave||""),M,y); y+=5;
-        doc.text("Norma: "+String(config.norma||"")+"   ·   Fecha revisión: "+String(revision.fechaRevision||obtenerFechaActual()),M,y); y+=8;
-        const datos=[['Marca',campos.marca||'' ],['Modelo',campos.modelo||''],['Nº serie',campos.numeroSerie||campos.serie||''],['Fecha fabricación',campos.fechaFabricacion||''],['Verificado por',revision.verificadoPor||auditoria.datosGenerales.auditor||'']];
-        const fila=(a,b)=>{doc.setDrawColor(120);doc.rect(M,y,50,6);doc.rect(M+50,y,140,6);doc.setFont(fuente,'bold');doc.setFontSize(7);doc.text(a,M+2,y+4);doc.setFont(fuente,'normal');doc.text(String(b||''),M+52,y+4);y+=6;};
-        datos.forEach(x=>fila(x[0],x[1])); y+=4;
-        doc.setFont(fuente,'bold');doc.setFontSize(8);doc.text('CONTROLES DE REVISIÓN',M,y);y+=5;
-        const controles=config.controles||[];
-        const mapa=revision.controles||{};
-        controles.forEach(item=>{const clave=item[0], nombre=item[1]; const c=mapa[clave]||{}; const texto=clave+"  "+nombre+"  ["+(c.resultado||config.resultadoControlDefault||'')+"]"; const lines=doc.splitTextToSize(texto, W-4); const h=Math.max(6,lines.length*3.2+2); if(y+h>282){doc.setFont(fuente,'normal');doc.setFontSize(6);doc.text('Página '+pagina,105,291,{align:'center'});doc.addPage();pagina++;y=15;} doc.rect(M,y,W,h);doc.setFont(fuente,'normal');doc.setFontSize(6.4);doc.text(lines,M+2,y+4);y+=h;});
-        y+=4; if(y>275){doc.addPage();pagina++;y=15;}
-        doc.setFont(fuente,'bold');doc.setFontSize(9);doc.text('VEREDICTO: '+String(revision.resultado||''),M,y);y+=6;
-        if(revision.comentarios){doc.setFont(fuente,'bold');doc.setFontSize(7);doc.text('Comentarios',M,y);y+=4;doc.setFont(fuente,'normal');const l=doc.splitTextToSize(String(revision.comentarios),W);doc.text(l,M,y);y+=l.length*3.2+4;}
-        doc.setFont(fuente,'normal');doc.setFontSize(6);doc.text('Auditoría SPM Grupo Zener · '+auditoria.id, M,291);doc.text('Página '+pagina,200,291,{align:'right'});
-        const blob=doc.output('blob');
-        const nombre=(auditoria.id+'_'+String(definicion.nombre||claveEpi)+'_'+String(config.plantillaClave||'REVISION')+'.pdf').replace(/[^A-Za-z0-9áéíóúüñÁÉÍÓÚÜÑ._-]+/g,'_');
-        const estado=document.getElementById('estadoDocumentoEpi_'+String(claveEpi).replace(/[^A-Za-z0-9_-]/g,'_')+'_'+String(idUnidad||'').replace(/[^A-Za-z0-9_-]/g,'_'));
-        if(estado) estado.textContent='Generando y registrando documento en la BBDD…';
-        const w=window.open('', '_blank');
-        if(w){ w.document.write('<title>Documento oficial</title><p>Generando documento…</p>'); w.document.close(); }
-        const res=await appGasPost({accion:'guardarInformePdf',auditoriaId:auditoria.id,tipo:'EPI_REVISION',nombre,mimeType:'application/pdf',base64:await blobADataUrl(blob),idEpi:claveEpi,unidadId:idUnidad||'',fabricante:config.fabricanteNombre||'',plantillaClave:config.plantillaClave||'',fechaRevision:revision.fechaRevision||obtenerFechaActual()});
-        if(w){w.location.href=res.url || ('https://drive.google.com/uc?export=download&id='+res.fileId);}
-        if(estado) estado.innerHTML='Documento oficial guardado correctamente. <button type="button" class="secondary-button" onclick="descargarUltimoDocumentoRevisionEpi(\''+String(claveEpi).replace(/'/g,"\\'")+ '\',\''+String(idUnidad||'').replace(/'/g,"\\'")+ '\')">📥 Descargar último documento</button>';
-        alert('Documento oficial generado y guardado correctamente.');
-        return res;
-    } catch(e){ console.error(e); alert('No se ha podido generar el documento oficial.\n\n'+(e.message||e)); throw e; }
-}
-
-async function descargarUltimoDocumentoRevisionEpi(claveEpi,idUnidad) {
-    try {
-        const r=await appGasGet({accion:'obtenerDocumentoEpi',auditoriaId:auditoria.id,idEpi:claveEpi,unidadId:idUnidad||''});
-        if(!r.encontrado) { alert('No existe todavía un documento oficial para este EPI. Genérelo primero.'); return; }
-        const url=r.url || (r.fileId ? 'https://drive.google.com/uc?export=download&id='+r.fileId : '');
-        if(!url) throw new Error('La BBDD no contiene una referencia válida al documento.');
-        window.open(url,'_blank','noopener');
-    } catch(e){ alert('No se ha podido recuperar el documento oficial desde la BBDD.\n\n'+(e.message||e)); }
-}
-
-function obtenerLogoFabricanteRevision(fabricante){
-    const f=normalizarFabricante(fabricante||'');
-    if(f==='IRUDEK' && typeof LOGO_EPI_IRUDEK_JPG!=='undefined') return LOGO_EPI_IRUDEK_JPG;
-    if(f==='PATACHO' && typeof LOGO_EPI_PATACHO_JPG!=='undefined') return LOGO_EPI_PATACHO_JPG;
-    if(f==='MIGUEL_MIRANDA' && typeof LOGO_EPI_MIGUEL_MIRANDA_JPG!=='undefined') return LOGO_EPI_MIGUEL_MIRANDA_JPG;
-    if(f==='CLIMAX' && typeof LOGO_EPI_CLIMAX_JPG!=='undefined') return LOGO_EPI_CLIMAX_JPG;
-    return null;
-}
-
-/* V18: las constantes de logos se incorporarán desde la versión de plantillas oficiales cuando estén disponibles. */
