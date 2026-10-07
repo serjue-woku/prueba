@@ -25,7 +25,7 @@ async function appGasPost(payload) {
             cache: "no-store"
         });
     } catch (err) {
-        throw new Error("No se pudo realizar la petición a Google Apps Script (" + accion + "): " + (err.message || err));
+        throw new Error("No se pudo realizar la petición a el servicio de BBDD (" + accion + "): " + (err.message || err));
     }
 
     const text = await r.text();
@@ -35,13 +35,13 @@ async function appGasPost(payload) {
         const looksHtml = /<html|<!doctype html/i.test(text);
         if (looksHtml) {
             throw new Error(
-                "Google Apps Script respondió con HTML en la acción '" + accion + "' (HTTP " + r.status + "). " +
-                "La petición POST no ha devuelto el JSON esperado. Es posible que el payload sea demasiado grande o que Google haya rechazado/redirigido la petición. Respuesta: " + preview
+                "El servicio de BBDD respondió con HTML en la acción '" + accion + "' (HTTP " + r.status + "). " +
+                "La petición POST no ha devuelto el JSON esperado. Es posible que el payload sea demasiado grande o que el servicio haya rechazado o redirigido la petición. Respuesta: " + preview
             );
         }
-        throw new Error("Respuesta no válida de Google Apps Script en '" + accion + "' (HTTP " + r.status + "): " + preview);
+        throw new Error("Respuesta no válida de el servicio de BBDD en '" + accion + "' (HTTP " + r.status + "): " + preview);
     }
-    if (!data.ok) throw new Error((data.error || "Google Apps Script devolvió un error.") + " [acción: " + accion + "]");
+    if (!data.ok) throw new Error((data.error || "La BBDD devolvió un error.") + " [acción: " + accion + "]");
     return data;
 }
 
@@ -186,10 +186,10 @@ async function appGasGet(payload) {
     try { data = JSON.parse(text); } catch (_) {
         const looksHtml = /^\s*<!doctype html|^\s*<html/i.test(text);
         throw new Error(looksHtml
-            ? "Google Apps Script ha devuelto HTML en la consulta GET de estadísticas. Comprueba la versión desplegada."
-            : "Respuesta no válida de Google Apps Script: " + text.slice(0, 300));
+            ? "El servicio de BBDD ha devuelto HTML en la consulta GET de estadísticas. Comprueba la versión desplegada."
+            : "Respuesta no válida de BBDD: " + text.slice(0, 300));
     }
-    if (!data.ok) throw new Error(data.error || "Google Apps Script devolvió un error.");
+    if (!data.ok) throw new Error(data.error || "La BBDD devolvió un error.");
     return data;
 }
 
@@ -388,7 +388,7 @@ function renderDashboardEstadisticas(data) {
       ["🏗️", "Campo", Number(d.campo || 0)], ["⚠️", "Con incidencias", Number(d.conIncidencias || 0)],
       ["👷", "Trabajadores", Number(d.totalTrabajadores || 0)], ["🏢", "Empresas", Number(d.empresas || 0)]
     ].map(x => `<div class="card stats-kpi-card"><div class="stats-kpi-icon">${x[0]}</div><strong>${escStats(x[1])}</strong><div class="stats-kpi-value">${x[2]}</div></div>`).join("");
-    return `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Datos consolidados desde Google Sheets. Las tablas se filtran desde los controles superiores y pueden exportarse a Excel.</p></div><div class="stats-header-actions"><button type="button" class="primary-button" onclick="exportarEstadisticasExcel()">⬇ Descargar Excel</button><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div></div>
+    return `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Datos consolidados desde BBDD. Las tablas se filtran desde los controles superiores y pueden exportarse a Excel.</p></div><div class="stats-header-actions"><button type="button" class="primary-button" onclick="exportarEstadisticasExcel()">⬇ Descargar Excel</button><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div></div>
       <div class="module-grid stats-kpi-grid">${cards}</div>
       <div class="card stats-filters-card"><div class="stats-section-title"><div><h3>Filtros</h3><small>Los filtros afectan a las tablas y al Excel descargado.</small></div><button type="button" class="secondary-button" onclick="limpiarFiltrosEstadisticas()">Limpiar filtros</button></div><div class="stats-filters-grid">
         <label>Empresa<input id="statsFiltroEmpresa" type="text" placeholder="Buscar empresa…" oninput="aplicarFiltrosEstadisticas()"></label>
@@ -406,7 +406,7 @@ function renderDashboardEstadisticas(data) {
 async function abrirDashboardEstadisticas() {
     const sec = document.getElementById("dashboardEstadisticas");
     if (!sec) return;
-    sec.innerHTML = `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Cargando datos de Google Sheets…</p></div><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div><div class="card">Consultando datos…</div>`;
+    sec.innerHTML = `<div class="dashboard-header"><div><h2>Estadísticas de auditorías</h2><p>Cargando datos de BBDD…</p></div><button type="button" class="secondary-button" onclick="mostrarPantalla('auditoriasInicio')">← Menú</button></div><div class="card">Consultando datos…</div>`;
     mostrarPantalla("dashboardEstadisticas");
     try { const data = await cargarEstadisticasEmpresas(); sec.innerHTML = renderDashboardEstadisticas(data); renderTablasEstadisticas(); }
     catch(e) { sec.innerHTML = `<div class="card"><h3>No se pudieron cargar las estadísticas</h3><p>${escStats(e.message || e)}</p><button class="secondary-button" onclick="abrirDashboardEstadisticas()">Reintentar</button></div>`; }
@@ -2865,7 +2865,7 @@ async function finalizarAuditoriaDesdeResumen() {
         fotosTotales = sync.fotografiasTotales;
         erroresFotografias = sync.erroresFotografias || [];
     } catch (e) {
-        alert("La auditoría no pudo guardarse en Google Sheets.\n\n" + (e.message || e));
+        alert("La auditoría no pudo guardarse en BBDD.\n\n" + (e.message || e));
         return;
     }
 
@@ -2875,12 +2875,12 @@ async function finalizarAuditoriaDesdeResumen() {
         const avisoFotos = erroresFotografias.length
             ? "\nFotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas. " + erroresFotografias.length + " con error."
             : "\nFotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas.";
-        alert("Auditoría finalizada correctamente. Google Sheets: OK." + avisoFotos + "\nPDF: OK. ID: " + auditoria.id);
+        alert("Auditoría finalizada correctamente. BBDD: OK." + avisoFotos + "\nPDF: OK. ID: " + auditoria.id);
     } catch (e) {
         const avisoFotos = erroresFotografias.length
             ? "Fotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas (" + erroresFotografias.length + " con error)."
             : "Fotografías: " + fotosGuardadas + "/" + fotosTotales + " guardadas.";
-        alert("La auditoría se ha guardado correctamente en Google Sheets. " + avisoFotos + "\nPero el PDF no pudo guardarse en la carpeta Informes.\n\n" + (e.message || e) + "\n\nLa auditoría NO se ha perdido.");
+        alert("La auditoría se ha guardado correctamente en BBDD. " + avisoFotos + "\nPero el PDF no pudo guardarse en la carpeta Informes.\n\n" + (e.message || e) + "\n\nLa auditoría NO se ha perdido.");
     }
     if (auditoriaGuardada) abrirDashboardEstadisticas();
 }
@@ -11830,18 +11830,18 @@ function instalarDashboardAuditoriasIndependientes() {
     main.insertBefore(sec, main.firstChild);
     const stats = document.createElement("section");
     stats.id = "dashboardEstadisticas"; stats.className = "screen";
-    stats.innerHTML = `<div class="card"><h2>Estadísticas</h2><p>Pulse para cargar las estadísticas desde Google Sheets.</p></div>`;
+    stats.innerHTML = `<div class="card"><h2>Estadísticas</h2><p>Pulse para cargar las estadísticas desde BBDD.</p></div>`;
     main.insertBefore(stats, document.getElementById("modulo") || null);
     const inc = document.createElement("section");
     inc.id = "gestionIncidencias"; inc.className = "screen";
-    inc.innerHTML = `<div class="card"><h2>Gestión de incidencias</h2><p>Pulse para cargar las incidencias desde Google Sheets.</p></div>`;
+    inc.innerHTML = `<div class="card"><h2>Gestión de incidencias</h2><p>Pulse para cargar las incidencias desde BBDD.</p></div>`;
     main.insertBefore(inc, document.getElementById("modulo") || null);
     if (!document.getElementById("estilosGestionIncidencias")) {
       const stInc=document.createElement("style"); stInc.id="estilosGestionIncidencias"; stInc.textContent=`
         .inc-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.inc-kpi{padding:16px;border:1px solid #ccc;border-radius:8px;background:#fff;text-align:center}.inc-kpi strong{display:block;font-size:1.8rem}.inc-table td,.inc-table th{padding:7px;border-bottom:1px solid #ddd;vertical-align:top}.inc-table th{white-space:nowrap}.inc-actions{display:flex;gap:6px;flex-wrap:wrap}.inc-badge{display:inline-block;padding:3px 8px;border-radius:12px;font-size:.78rem;font-weight:700;background:#eee}.inc-evidence-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.inc-evidence-card{border:1px solid #ccc;border-radius:7px;padding:8px;background:#fff}.inc-evidence-card img{width:100%;height:150px;object-fit:contain;background:#f5f5f5}.inc-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.inc-detail-grid .full{grid-column:1/-1}.inc-filter-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.inc-filter-grid label{display:flex;flex-direction:column;gap:4px}.inc-small{font-size:.82rem;color:#666}@media(max-width:900px){.inc-kpi-grid{grid-template-columns:repeat(2,1fr)}.inc-filter-grid,.inc-detail-grid{grid-template-columns:1fr}.inc-evidence-grid{grid-template-columns:1fr}.inc-detail-grid .full{grid-column:auto}}`;
       document.head.appendChild(stInc);
     }
-    sec.querySelector(".module-grid").insertAdjacentHTML("beforeend", `<button type="button" class="module-card summary-card" onclick="abrirDashboardEstadisticas()"><span class="module-icon">📊</span><strong>Estadísticas</strong><span class="status status-gray">Google Sheets</span></button><button type="button" class="module-card summary-card" onclick="abrirPanelEmpresas()"><span class="module-icon">🏢</span><strong>Empresas</strong><span class="status status-gray">Catálogo automático</span></button><button type="button" class="module-card summary-card" onclick="abrirGestionIncidencias()"><span class="module-icon">⚠️</span><strong>Gestión de incidencias</strong><span id="gestionIncidenciasBadge" class="status status-gray">Cargando…</span></button>`);
+    sec.querySelector(".module-grid").insertAdjacentHTML("beforeend", `<button type="button" class="module-card summary-card" onclick="abrirDashboardEstadisticas()"><span class="module-icon">📊</span><strong>Estadísticas</strong><span class="status status-gray">BBDD</span></button><button type="button" class="module-card summary-card" onclick="abrirPanelEmpresas()"><span class="module-icon">🏢</span><strong>Empresas</strong><span class="status status-gray">Catálogo automático</span></button><button type="button" class="module-card summary-card" onclick="abrirGestionIncidencias()"><span class="module-icon">⚠️</span><strong>Gestión de incidencias</strong><span id="gestionIncidenciasBadge" class="status status-gray">Cargando…</span></button>`);
     const tituloHeader = document.querySelector(".app-header h1");
     if (tituloHeader) tituloHeader.textContent = "Auditorías SPM Grupo Zener";
     inicializarAuditoriaCampo();
@@ -12364,7 +12364,7 @@ async function finalizarAuditoriaCampo(){
         fotosCampoTotales = syncCampo.fotografiasTotales;
         erroresFotosCampo = syncCampo.erroresFotografias || [];
     } catch(e) {
-        alert("La auditoría de campo no pudo guardarse en Google Sheets.\n\n"+(e.message||e));
+        alert("La auditoría de campo no pudo guardarse en BBDD.\n\n"+(e.message||e));
         return;
     }
 
@@ -12374,13 +12374,13 @@ async function finalizarAuditoriaCampo(){
         const avisoFotos = erroresFotosCampo.length
             ? " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
             : " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
-        alert("Auditoría de campo guardada correctamente en Google Sheets y Drive." + avisoFotos + " PDF enviado a Informes. ID: "+auditoriaCampo.id);
+        alert("Auditoría de campo guardada correctamente en BBDD y Drive." + avisoFotos + " PDF enviado a Informes. ID: "+auditoriaCampo.id);
     } catch(e) {
         if(auditoriaGuardada){
             const avisoFotos = erroresFotosCampo.length
                 ? "Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
                 : "Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
-            alert("La auditoría de campo ha quedado guardada correctamente en Google Sheets. " + avisoFotos + "\nPero el PDF no pudo confirmarse en la carpeta Informes.\n\n"+(e.message||e)+"\n\nLa auditoría NO se ha perdido.");
+            alert("La auditoría de campo ha quedado guardada correctamente en BBDD. " + avisoFotos + "\nPero el PDF no pudo confirmarse en la carpeta Informes.\n\n"+(e.message||e)+"\n\nLa auditoría NO se ha perdido.");
         } else {
             alert("No se pudo completar la sincronización.\n\n"+(e.message||e));
         }
