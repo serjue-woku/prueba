@@ -12762,7 +12762,10 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
             // de la línea de cabecera de sección.
             // Baselines centradas en las 7 filas reales de la tabla:
             // 4 textiles + 3 metálicas/funcionamiento.
-            filas: [1147,1171,1195,1218,1266,1290,1313],
+            // Centros verticales reales de las 7 filas de control.
+            // 4 textiles: 1138/1161/1185/1209
+            // 3 metálicos: 1256/1280/1304
+            filas: [1138,1161,1185,1209,1256,1280,1304],
             historico: 658, comentarios: [1363,1500], veredicto: 1500,
             cliente: [545,344,240], modelo: [545,416,240],
             bottom: { checkboxY: 1546, fechaY: 1582, verificadoY: 1609,
@@ -12813,6 +12816,21 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         };
 
         doc.addImage(spec.fondo, "JPEG", 0, 0, 210, 297, "IRUDEK_"+String(config.plantillaClave), "FAST");
+
+        // La plantilla original divide "PORTÁTIL" en PORTATI + L por el ajuste
+        // de la imagen. Para la ficha oficial de LÍNEA DE VIDA PORTÁTIL se
+        // reconstruye únicamente esta zona gráfica, sin tocar el resto de la
+        // plantilla: LÍNEA / DE VIDA / PORTÁTIL, cada palabra en su línea.
+        if (String(config.plantillaClave || "") === "IRUDEK_LINEA_VIDA_PORTATIL") {
+            doc.setFillColor(255,255,255);
+            doc.rect(px(58), py(330), px(315), py(315), "F");
+            doc.setTextColor(0,0,0);
+            doc.setFont("times","bold");
+            doc.setFontSize(22);
+            doc.text("LÍNEA", px(205), py(401), {align:"center"});
+            doc.text("DE VIDA", px(205), py(480), {align:"center"});
+            doc.text("PORTÁTIL", px(205), py(559), {align:"center"});
+        }
 
         const dg = auditoria.datosGenerales || {};
         const cliente = dg.cliente || dg.empresa || "";
@@ -12900,14 +12918,16 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         // Limpiar exclusivamente las celdas de datos, respetando todos los textos
         // y bordes originales de la plantilla.
         borrar(bottom.fechaX, bottom.fechaY-11, bottom.fechaW, 22);
-        borrar(bottom.proximaX, bottom.fechaY-11, bottom.proximaW, 22);
+        borrar(842, bottom.fechaY-11, 315, 22);
         borrar(bottom.verificadoX, bottom.verificadoY-11, bottom.verificadoW, 22);
 
         texto(formatearFechaDocumentoIrudek(revision.fechaRevision || obtenerFechaActual()), 259, bottom.fechaY+4, 8);
         // La celda de "Fecha próxima revisión" empieza DESPUÉS del rótulo,
         // aproximadamente en X=838. Nunca se debe escribir desde X=669
         // porque esa zona pertenece al texto fijo "Fecha próxima revisión:".
-        const proximaRevision = formatearFechaDocumentoIrudek(revision.fechaProximaRevision || "");
+        const proximaRevision = formatearFechaDocumentoIrudek(
+            obtenerFechaProximaRevisionDocumentoIrudek(revision)
+        );
         if (proximaRevision) {
             texto(proximaRevision, 850, bottom.fechaY+4, 8);
         }
@@ -12979,6 +12999,20 @@ function formatearFechaDocumentoIrudek(valor) {
 
 function textoDocumentoIrudek(valor, max=42) {
     return String(valor == null ? "" : valor).replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+function obtenerFechaProximaRevisionDocumentoIrudek(revision) {
+    const indicada = String(revision && revision.fechaProximaRevision || "").trim();
+    if (indicada) return indicada;
+    const base = String(revision && revision.fechaRevision || "").trim() || obtenerFechaActual();
+    const m = base.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return "";
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (Number.isNaN(d.getTime())) return "";
+    d.setFullYear(d.getFullYear() + 1);
+    return d.getFullYear() + "-" +
+        String(d.getMonth() + 1).padStart(2, "0") + "-" +
+        String(d.getDate()).padStart(2, "0");
 }
 
 async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicion, unidad, campos, revision, config) {
