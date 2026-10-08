@@ -12760,11 +12760,13 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
             // Coordenadas calibradas sobre la plantilla oficial IRUDEK de 1241x1754 px.
             // Las filas de los elementos metálicos empiezan inmediatamente después
             // de la línea de cabecera de sección.
-            filas: [1137,1161,1185,1209,1233,1257,1280],
+            // Baselines centradas en las 7 filas reales de la tabla:
+            // 4 textiles + 3 metálicas/funcionamiento.
+            filas: [1145,1169,1193,1216,1264,1288,1311],
             historico: 658, comentarios: [1363,1500], veredicto: 1500,
             cliente: [545,344,240], modelo: [545,416,240],
             bottom: { checkboxY: 1546, fechaY: 1582, verificadoY: 1609,
-                      fechaX: 247, fechaW: 373, proximaX: 657, proximaW: 475,
+                      fechaX: 247, fechaW: 373, proximaX: 838, proximaW: 325,
                       verificadoX: 247, verificadoW: 916 }
         },
         IRUDEK_LAZO_SALVAMENTO: {
@@ -12828,7 +12830,7 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
             let out = value;
             while (out.length > 1 && doc.getTextWidth(out) > maxWidth) out = out.slice(0,-1);
             if (out.length < value.length && out.length > 3) out = out.slice(0,-3) + "…";
-            doc.text(out, px(pos[0]), py(pos[1]));
+            doc.text(out, px(pos[0]), py(pos[1] + 12));
         };
         textoCabeceraLimitado(cliente, spec.cliente);
         textoCabeceraLimitado(modelo, spec.modelo);
@@ -12843,7 +12845,10 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         const numeroSerie = campos.numeroSerie || campos.serie || "";
         const numeroLote = campos.numeroLote || "";
 
-        texto(fechaFabricacion ? fechaFabricacion.slice(-4) : "", 370, hy+38, 8);
+        // Aunque la plantilla rotula "Año de fabricación", la aplicación
+        // dispone de la fecha completa. Se muestra completa en formato
+        // DD/MM/YYYY para no convertir 2025-04-01 en el erróneo "04-01".
+        texto(fechaFabricacion, 370, hy+38, 8);
         texto(fechaCompra, 685, hy+38, 8);
         texto(fechaPrimerUso, 1050, hy+38, 8);
         texto(textoDocumentoIrudek(numeroSerie,22), 370, hy+62, 8);
@@ -12889,8 +12894,8 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
             verificadoX: 247, verificadoW: 916
         };
         const resultado = String(revision.resultado || "").toUpperCase();
-        if (resultado.includes("NO APTO")) marcar(638, bottom.checkboxY);
-        else marcar(1148, bottom.checkboxY);
+        if (resultado.includes("NO APTO")) marcar(1148, bottom.checkboxY);
+        else marcar(638, bottom.checkboxY);
 
         // Limpiar exclusivamente las celdas de datos, respetando todos los textos
         // y bordes originales de la plantilla.
@@ -12961,7 +12966,7 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
 function formatearFechaDocumentoIrudek(valor) {
     const s = String(valor || "").trim();
     if (!s) return "";
-    const m = s.match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (m) return m[3] + "/" + m[2] + "/" + m[1];
     return s;
 }
@@ -13005,7 +13010,7 @@ async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicio
         texto(textoDocumentoIrudek(modelo,38), 455, 367, 8.8, false);
 
         // Verificación histórica.
-        texto(fechaFabricacion ? fechaFabricacion.slice(-4) : "", 294, 486, 8, false);
+        texto(fechaFabricacion, 294, 486, 8, false);
         texto(fechaCompra, 619, 486, 8, false);
         texto(fechaPrimerUso, 994, 486, 8, false);
         texto(textoDocumentoIrudek(numeroSerie,22), 294, 510, 8, false);
