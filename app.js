@@ -12765,11 +12765,13 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
             // Centros verticales reales de las 7 filas de control.
             // 4 textiles: 1138/1161/1185/1209
             // 3 metálicos: 1256/1280/1304
-            filas: [1138,1161,1185,1209,1256,1280,1304],
+            // Baselines recalibradas con respecto a la línea base real de jsPDF.
+            // Se colocan las X en el centro de cada una de las 7 celdas.
+            filas: [1149,1177,1201,1224,1268,1296,1319],
             historico: 658, comentarios: [1363,1500], veredicto: 1500,
             cliente: [545,344,240], modelo: [545,416,240],
             bottom: { checkboxY: 1546, fechaY: 1582, verificadoY: 1609,
-                      fechaX: 247, fechaW: 373, proximaX: 838, proximaW: 325,
+                      fechaX: 247, fechaW: 316, proximaX: 838, proximaW: 325,
                       verificadoX: 247, verificadoW: 916 }
         },
         IRUDEK_LAZO_SALVAMENTO: {
@@ -12811,7 +12813,7 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
 
         const marcar = (x,y) => {
             doc.setFont(fuente,"bold");
-            doc.setFontSize(8);
+            doc.setFontSize(6.5);
             doc.text("X", px(x), py(y), {align:"center"});
         };
 
@@ -12908,7 +12910,7 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
             checkboxY: spec.veredicto + 46,
             fechaY: spec.veredicto + 81,
             verificadoY: spec.veredicto + 105,
-            fechaX: 247, fechaW: 373, proximaX: 657, proximaW: 475,
+            fechaX: 247, fechaW: 316, proximaX: 838, proximaW: 325,
             verificadoX: 247, verificadoW: 916
         };
         const resultado = String(revision.resultado || "").toUpperCase();
@@ -12918,7 +12920,7 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         // Limpiar exclusivamente las celdas de datos, respetando todos los textos
         // y bordes originales de la plantilla.
         borrar(bottom.fechaX, bottom.fechaY-11, bottom.fechaW, 22);
-        borrar(842, bottom.fechaY-11, 315, 22);
+        borrar(bottom.proximaX, bottom.fechaY-11, bottom.proximaW, 22);
         borrar(bottom.verificadoX, bottom.verificadoY-11, bottom.verificadoW, 22);
 
         texto(formatearFechaDocumentoIrudek(revision.fechaRevision || obtenerFechaActual()), 259, bottom.fechaY+4, 8);
