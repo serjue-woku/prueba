@@ -12762,7 +12762,7 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
             // de la línea de cabecera de sección.
             // Baselines centradas en las 7 filas reales de la tabla:
             // 4 textiles + 3 metálicas/funcionamiento.
-            filas: [1145,1169,1193,1216,1264,1288,1311],
+            filas: [1147,1171,1195,1218,1266,1290,1313],
             historico: 658, comentarios: [1363,1500], veredicto: 1500,
             cliente: [545,344,240], modelo: [545,416,240],
             bottom: { checkboxY: 1546, fechaY: 1582, verificadoY: 1609,
@@ -12904,7 +12904,13 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         borrar(bottom.verificadoX, bottom.verificadoY-11, bottom.verificadoW, 22);
 
         texto(formatearFechaDocumentoIrudek(revision.fechaRevision || obtenerFechaActual()), 259, bottom.fechaY+4, 8);
-        texto(formatearFechaDocumentoIrudek(revision.fechaProximaRevision || ""), 669, bottom.fechaY+4, 8);
+        // La celda de "Fecha próxima revisión" empieza DESPUÉS del rótulo,
+        // aproximadamente en X=838. Nunca se debe escribir desde X=669
+        // porque esa zona pertenece al texto fijo "Fecha próxima revisión:".
+        const proximaRevision = formatearFechaDocumentoIrudek(revision.fechaProximaRevision || "");
+        if (proximaRevision) {
+            texto(proximaRevision, 850, bottom.fechaY+4, 8);
+        }
         texto(textoDocumentoIrudek(revision.verificadoPor || dg.auditor || "",80), 259, bottom.verificadoY+4, 8);
 
         // Firma del auditor, si está disponible.
