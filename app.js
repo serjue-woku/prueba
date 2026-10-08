@@ -12757,9 +12757,15 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         },
         IRUDEK_LINEA_VIDA_PORTATIL: {
             fondo: IRUDEK_TEMPLATE_LINEA_VIDA_JPG,
-            filas: [1136,1160,1183,1207,1255,1278,1302],
+            // Coordenadas calibradas sobre la plantilla oficial IRUDEK de 1241x1754 px.
+            // Las filas de los elementos metálicos empiezan inmediatamente después
+            // de la línea de cabecera de sección.
+            filas: [1137,1161,1185,1209,1233,1257,1280],
             historico: 658, comentarios: [1363,1500], veredicto: 1500,
-            cliente: [685,344,105], modelo: [685,416,105]
+            cliente: [545,344,240], modelo: [545,416,240],
+            bottom: { checkboxY: 1546, fechaY: 1582, verificadoY: 1609,
+                      fechaX: 247, fechaW: 373, proximaX: 657, proximaW: 475,
+                      verificadoX: 247, verificadoW: 916 }
         },
         IRUDEK_LAZO_SALVAMENTO: {
             fondo: IRUDEK_TEMPLATE_LAZO_JPG,
@@ -12810,7 +12816,9 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         const cliente = dg.cliente || dg.empresa || "";
         const modelo = campos.modelo || "";
 
-        // Cabecera: solo sobre las zonas destinadas a datos variables.
+        // Cabecera: las plantillas oficiales no tienen una celda para el dato;
+        // el valor debe comenzar DESPUÉS del rótulo CLIENTE/MODELO.
+        // La coordenada anterior [685,...] desplazaba el dato demasiado a la derecha.
         const textoCabeceraLimitado = (valor, pos, fs=7.2) => {
             const value = String(valor == null ? "" : valor).replace(/\s+/g, " ").trim();
             if (!value) return;
@@ -12825,7 +12833,9 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         textoCabeceraLimitado(cliente, spec.cliente);
         textoCabeceraLimitado(modelo, spec.modelo);
 
-        // Verificación histórica: la maqueta y las etiquetas permanecen intactas.
+        // Verificación histórica: las celdas de valor de la plantilla oficial
+        // comienzan aproximadamente en X=359, 669 y 1042 px.
+        // Se escribe dentro de esas celdas, nunca sobre el rótulo.
         const hy = spec.historico;
         const fechaFabricacion = formatearFechaDocumentoIrudek(campos.fechaFabricacion);
         const fechaCompra = formatearFechaDocumentoIrudek(campos.fechaCompra);
@@ -12833,11 +12843,11 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         const numeroSerie = campos.numeroSerie || campos.serie || "";
         const numeroLote = campos.numeroLote || "";
 
-        texto(fechaFabricacion ? fechaFabricacion.slice(-4) : "", 294, hy+38, 8);
-        texto(fechaCompra, 619, hy+38, 8);
-        texto(fechaPrimerUso, 994, hy+38, 8);
-        texto(textoDocumentoIrudek(numeroSerie,22), 294, hy+62, 8);
-        texto(textoDocumentoIrudek(numeroLote,22), 619, hy+62, 8);
+        texto(fechaFabricacion ? fechaFabricacion.slice(-4) : "", 370, hy+38, 8);
+        texto(fechaCompra, 685, hy+38, 8);
+        texto(fechaPrimerUso, 1050, hy+38, 8);
+        texto(textoDocumentoIrudek(numeroSerie,22), 370, hy+62, 8);
+        texto(textoDocumentoIrudek(numeroLote,22), 685, hy+62, 8);
 
         // Las fichas oficiales IRUDEK usan B / AV / R / M / NP.
         const colX = {B:873, AV:930, R:995, M:1068, NP:1134};
@@ -12868,19 +12878,29 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
             doc.text(lines.slice(0,maxLines), px(72), py(commentsTop+18));
         }
 
-        // Veredicto: se marca la celda correspondiente sin alterar el texto oficial.
-        const vy = spec.veredicto + 17;
+        // Veredicto y datos finales: las casillas están en la fila de opciones,
+        // mientras que fecha/verificador ocupan filas independientes debajo.
+        // Nunca se borra la fila del texto oficial "El producto es APTO...".
+        const bottom = spec.bottom || {
+            checkboxY: spec.veredicto + 46,
+            fechaY: spec.veredicto + 81,
+            verificadoY: spec.veredicto + 105,
+            fechaX: 247, fechaW: 373, proximaX: 657, proximaW: 475,
+            verificadoX: 247, verificadoW: 916
+        };
         const resultado = String(revision.resultado || "").toUpperCase();
-        if (resultado.includes("NO APTO")) marcar(594, vy);
-        else marcar(1104, vy);
+        if (resultado.includes("NO APTO")) marcar(638, bottom.checkboxY);
+        else marcar(1148, bottom.checkboxY);
 
-        // Fecha revisión / próxima revisión / verificado por.
-        borrar(251, spec.veredicto+24, 264, 40);
-        borrar(794, spec.veredicto+24, 324, 40);
-        borrar(251, spec.veredicto+70, 866, 20);
-        texto(formatearFechaDocumentoIrudek(revision.fechaRevision || obtenerFechaActual()), 289, spec.veredicto+50, 8);
-        texto(formatearFechaDocumentoIrudek(revision.fechaProximaRevision || ""), 818, spec.veredicto+50, 8);
-        texto(textoDocumentoIrudek(revision.verificadoPor || dg.auditor || "",80), 262, spec.veredicto+88, 8);
+        // Limpiar exclusivamente las celdas de datos, respetando todos los textos
+        // y bordes originales de la plantilla.
+        borrar(bottom.fechaX, bottom.fechaY-11, bottom.fechaW, 22);
+        borrar(bottom.proximaX, bottom.fechaY-11, bottom.proximaW, 22);
+        borrar(bottom.verificadoX, bottom.verificadoY-11, bottom.verificadoW, 22);
+
+        texto(formatearFechaDocumentoIrudek(revision.fechaRevision || obtenerFechaActual()), 259, bottom.fechaY+4, 8);
+        texto(formatearFechaDocumentoIrudek(revision.fechaProximaRevision || ""), 669, bottom.fechaY+4, 8);
+        texto(textoDocumentoIrudek(revision.verificadoPor || dg.auditor || "",80), 259, bottom.verificadoY+4, 8);
 
         // Firma del auditor, si está disponible.
         const firma = auditoria.firmas && (auditoria.firmas.auditor || auditoria.firmas.firmaAuditor);
@@ -12889,7 +12909,8 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
                 const p = doc.getImageProperties(firma);
                 let w = 52, h = w / (p.width / p.height);
                 if (h > 20) { h = 20; w = h * (p.width / p.height); }
-                doc.addImage(firma, undefined, px(191), py(spec.veredicto+104), px(w / SX), py(h / SY), undefined, "FAST");
+                const firmaY = (spec.bottom && spec.bottom.verificadoY ? spec.bottom.verificadoY + 30 : spec.veredicto + 134);
+                doc.addImage(firma, undefined, px(191), py(firmaY), px(w / SX), py(h / SY), undefined, "FAST");
             } catch (_) {}
         }
 
