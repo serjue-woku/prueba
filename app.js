@@ -12767,9 +12767,9 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
             // 3 metálicos: 1256/1280/1304
             // Baselines recalibradas con respecto a la línea base real de jsPDF.
             // Se colocan las X en el centro de cada una de las 7 celdas.
-            filas: [1149,1177,1201,1224,1268,1296,1319],
+            filas: [1158,1182,1206,1230,1278,1302,1326],
             historico: 658, comentarios: [1363,1500], veredicto: 1500,
-            cliente: [545,344,240], modelo: [545,416,240],
+            cliente: [545,344,240], modelo: [545,432,240],
             bottom: { checkboxY: 1546, fechaY: 1582, verificadoY: 1609,
                       fechaX: 247, fechaW: 316, proximaX: 838, proximaW: 325,
                       verificadoX: 247, verificadoW: 916 }
