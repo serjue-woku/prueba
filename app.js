@@ -12721,39 +12721,39 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
     const PLANTILLAS = {
         IRUDEK_ABSORBEDOR: {
             fondo: IRUDEK_TEMPLATE_ABSORBEDOR_JPG,
-            filas: [1027,1050,1074,1098,1122,1145,1169,1193,1217,1240,1288,1312,1335],
+            filas: [1035,1058,1082,1106,1130,1153,1177,1201,1225,1248,1296,1320,1343],
             historico: 550, comentarios: [1396,1534], veredicto: 1534,
-            cliente: [610,316,180], modelo: [610,388,180]
+            cliente: [610,316,180], modelo: [610,396,180]
         },
         IRUDEK_ANTICAIDAS_DESLIZANTE: {
             fondo: IRUDEK_TEMPLATE_ANTICAIDAS_JPG,
-            filas: [952,976,1000,1023,1047,1071,1142,1166,1190],
+            filas: [960,984,1008,1031,1055,1079,1150,1174,1198],
             historico: 544, comentarios: [1227,1364], veredicto: 1364,
-            cliente: [685,344,105], modelo: [685,416,105]
+            cliente: [685,344,105], modelo: [685,424,105]
         },
         IRUDEK_CASCO: {
             fondo: IRUDEK_TEMPLATE_CASCO_JPG,
-            filas: [823,847,894,964,988,1033,1059,1081],
+            filas: [831,855,902,972,996,1041,1067,1089],
             historico: 482, comentarios: [1118,1279], veredicto: 1279,
-            cliente: [500,316,260], modelo: [500,388,260]
+            cliente: [500,316,260], modelo: [500,396,260]
         },
         IRUDEK_CINTA_ANCLAJE: {
             fondo: IRUDEK_TEMPLATE_CINTA_JPG,
-            filas: [1136,1160,1183,1207,1231],
+            filas: [1144,1168,1191,1215,1239],
             historico: 658, comentarios: [1268,1429], veredicto: 1429,
-            cliente: [685,344,105], modelo: [685,416,105]
+            cliente: [685,344,105], modelo: [685,424,105]
         },
         IRUDEK_CONECTOR: {
             fondo: IRUDEK_TEMPLATE_CONECTOR_JPG,
-            filas: [931,955,979,1002],
+            filas: [939,963,987,1010],
             historico: 544, comentarios: [1085,1223], veredicto: 1223,
-            cliente: [600,316,180], modelo: [600,388,180]
+            cliente: [600,316,180], modelo: [600,396,180]
         },
         IRUDEK_CUERDA: {
             fondo: IRUDEK_TEMPLATE_CUERDA_JPG,
-            filas: [988,1012,1036,1060,1083,1107,1178,1202,1226],
+            filas: [996,1020,1044,1068,1091,1115,1186,1210,1234],
             historico: 510, comentarios: [1263,1400], veredicto: 1400,
-            cliente: [600,344,180], modelo: [600,416,180]
+            cliente: [600,344,180], modelo: [600,424,180]
         },
         IRUDEK_LINEA_VIDA_PORTATIL: {
             fondo: IRUDEK_TEMPLATE_LINEA_VIDA_JPG,
@@ -12776,9 +12776,9 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         },
         IRUDEK_LAZO_SALVAMENTO: {
             fondo: IRUDEK_TEMPLATE_LAZO_JPG,
-            filas: [1136,1160,1183,1207,1231],
+            filas: [1144,1168,1191,1215,1239],
             historico: 658, comentarios: [1268,1429], veredicto: 1429,
-            cliente: [685,344,105], modelo: [685,416,105]
+            cliente: [685,344,105], modelo: [685,424,105]
         }
     };
 
@@ -13049,7 +13049,7 @@ async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicio
 
         // Cabecera: solo se rellenan las zonas que en la plantilla son campos vacíos.
         texto(textoDocumentoIrudek(cliente,45), 455, 304, 8.8, false);
-        texto(textoDocumentoIrudek(modelo,38), 455, 367, 8.8, false);
+        texto(textoDocumentoIrudek(modelo,38), 455, 375, 8.8, false);
 
         // Verificación histórica.
         texto(fechaFabricacion, 294, 486, 8, false);
@@ -13060,7 +13060,7 @@ async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicio
 
         // Marcas de los 16 controles en las casillas B / AV / R / M / NP.
         const colX = { B:873, AV:930, R:995.3, M:1068.1, NP:1135.6 };
-        const filasY = [882.6,906.6,929.9,953.9,977.9,1001.1,1025.1,1049.1,1119.6,1166.8,1190.1,1214.1,1238.1,1285.3,1309.3,1333.3];
+        const filasY = [890.6,914.6,937.9,961.9,985.9,1009.1,1033.1,1057.1,1127.6,1174.8,1198.1,1222.1,1246.1,1293.3,1317.3,1341.3];
         const controles = config.controles || [];
         const mapa = revision.controles || {};
         controles.forEach((item, i) => {
