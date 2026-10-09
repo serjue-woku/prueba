@@ -12733,9 +12733,10 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         },
         IRUDEK_CASCO: {
             fondo: IRUDEK_TEMPLATE_CASCO_JPG,
-            filas: [831,855,902,972,996,1041,1067,1089],
+            filas: [839,863,910,980,1004,1049,1075,1097],
             historico: 482, comentarios: [1118,1279], veredicto: 1279,
-            cliente: [500,316,260], modelo: [500,396,260]
+            cliente: [500,316,260], modelo: [500,396,260],
+            historicoCampos: {fabricacionX: 294, compraX: 619, primerUsoX: 994, serieX: 294, loteX: 619}
         },
         IRUDEK_CINTA_ANCLAJE: {
             fondo: IRUDEK_TEMPLATE_CINTA_JPG,
@@ -12868,11 +12869,12 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         // Aunque la plantilla rotula "Año de fabricación", la aplicación
         // dispone de la fecha completa. Se muestra completa en formato
         // DD/MM/YYYY para no convertir 2025-04-01 en el erróneo "04-01".
-        texto(fechaFabricacion, 370, hy+38, 8);
-        texto(fechaCompra, 685, hy+38, 8);
-        texto(fechaPrimerUso, 1050, hy+38, 8);
-        texto(textoDocumentoIrudek(numeroSerie,22), 370, hy+62, 8);
-        texto(textoDocumentoIrudek(numeroLote,22), 685, hy+62, 8);
+        const hc = spec.historicoCampos || {};
+        texto(fechaFabricacion, hc.fabricacionX ?? 370, hy+38, 8);
+        texto(fechaCompra, hc.compraX ?? 685, hy+38, 8);
+        texto(fechaPrimerUso, hc.primerUsoX ?? 1050, hy+38, 8);
+        texto(textoDocumentoIrudek(numeroSerie,22), hc.serieX ?? 370, hy+62, 8);
+        texto(textoDocumentoIrudek(numeroLote,22), hc.loteX ?? 685, hy+62, 8);
 
         // Las fichas oficiales IRUDEK usan B / AV / R / M / NP.
         const colX = {B:873, AV:930, R:995, M:1068, NP:1134};
