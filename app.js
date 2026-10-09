@@ -13056,13 +13056,13 @@ async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicio
         // Verificación histórica.
         texto(fechaFabricacion, 294, 486, 8, false);
         texto(fechaCompra, 619, 486, 8, false);
-        texto(fechaPrimerUso, 994, 486, 8, false);
+        texto(fechaPrimerUso, 1020, 486, 8, false);
         texto(textoDocumentoIrudek(numeroSerie,22), 294, 510, 8, false);
         texto(textoDocumentoIrudek(numeroLote,22), 619, 510, 8, false);
 
         // Marcas de los 16 controles en las casillas B / AV / R / M / NP.
         const colX = { B:873, AV:930, R:995.3, M:1068.1, NP:1135.6 };
-        const filasY = [890.6,914.6,937.9,961.9,985.9,1009.1,1033.1,1057.1,1127.6,1174.8,1198.1,1222.1,1246.1,1293.3,1317.3,1341.3];
+        const filasY = [906.6,930.6,953.9,977.9,1001.9,1025.1,1049.1,1073.1,1127.6,1174.8,1198.1,1222.1,1246.1,1293.3,1317.3,1341.3];
         const controles = config.controles || [];
         const mapa = revision.controles || {};
         controles.forEach((item, i) => {
@@ -13087,16 +13087,15 @@ async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicio
 
         // Veredicto: se marcan las casillas originales de la plantilla.
         const resultado = String(revision.resultado || "").toUpperCase();
-        if (resultado.includes("NO APTO")) marcar(594.2,1520.8);
-        else marcar(1104.4,1520.8);
+        if (resultado.includes("NO APTO")) marcar(1104.4,1520.8);
+        else marcar(594.2,1520.8);
 
         // Fecha de revisión, próxima revisión y verificador.
-        borrar(251.5,1531.2,263,39);
-        borrar(794.5,1531.2,323,39);
-        borrar(251.5,1577,866,20.3);
-        texto(formatearFechaDocumentoIrudek(revision.fechaRevision || obtenerFechaActual()), 289, 1554, 8, false);
-        texto(formatearFechaDocumentoIrudek(revision.fechaProximaRevision || ""), 818, 1554, 8, false);
-        texto(textoDocumentoIrudek(revision.verificadoPor || dg.auditor || "",80), 262, 1592, 8, false);
+        // No borrar la zona del veredicto: contiene los textos oficiales APTO/NO APTO.
+        // Escribir los datos únicamente en las filas de fecha y verificador.
+        texto(formatearFechaDocumentoIrudek(revision.fechaRevision || obtenerFechaActual()), 289, 1582, 8, false);
+        texto(formatearFechaDocumentoIrudek(revision.fechaProximaRevision || ""), 818, 1582, 8, false);
+        texto(textoDocumentoIrudek(revision.verificadoPor || dg.auditor || "",80), 262, 1612, 8, false);
 
         // Firma del auditor si existe en la auditoría recuperada.
         const firma = auditoria.firmas && (auditoria.firmas.auditor || auditoria.firmas.firmaAuditor);
