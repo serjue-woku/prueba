@@ -12733,10 +12733,10 @@ async function generarDocumentoRevisionIrudekPlantillaOficial(claveEpi, idUnidad
         },
         IRUDEK_CASCO: {
             fondo: IRUDEK_TEMPLATE_CASCO_JPG,
-            filas: [839,863,910,980,1004,1049,1075,1097],
+            filas: [855,879,926,996,1020,1065,1091,1113],
             historico: 482, comentarios: [1118,1279], veredicto: 1279,
             cliente: [500,316,260], modelo: [500,396,260],
-            historicoCampos: {fabricacionX: 294, compraX: 619, primerUsoX: 994, serieX: 294, loteX: 619}
+            historicoCampos: {fabricacionX: 294, compraX: 619, primerUsoX: 1020, serieX: 294, loteX: 619}
         },
         IRUDEK_CINTA_ANCLAJE: {
             fondo: IRUDEK_TEMPLATE_CINTA_JPG,
