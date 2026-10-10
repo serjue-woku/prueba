@@ -13086,8 +13086,22 @@ async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicio
         // Solo se limpia el interior del cuadro blanco, sin invadir el marco ni el veredicto.
         borrar(62,1375,1093,126);
         const observaciones = [];
-        const comentarios = String(revision.comentarios || "").trim();
-        if (comentarios) observaciones.push(comentarios);
+        // Fuente principal: campo «Comentarios» del formulario específico de revisión
+        // del fabricante, almacenado en unidad.revisionFabricante.comentarios.
+        // Se añaden alternativas de recuperación por compatibilidad con auditorías
+        // anteriores, sin sustituir un comentario real por el texto predeterminado.
+        const comentariosCandidatos = [
+            revision && revision.comentarios,
+            unidad && unidad.revisionFabricante && unidad.revisionFabricante.comentarios,
+            campos && campos.comentarios,
+            unidad && unidad.comentarios
+        ];
+        const comentarios = String(
+            comentariosCandidatos.find(v => v != null && String(v).trim() !== "") || ""
+        ).trim();
+        if (comentarios) {
+            observaciones.push(...comentarios.split(/\\r?\\n/).map(linea => linea.trim()).filter(Boolean));
+        }
         controles.forEach((item) => {
             const c = mapa[item[0]] || {};
             let r = String(c.resultado || config.resultadoControlDefault || "B").trim().toUpperCase();
