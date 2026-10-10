@@ -13056,7 +13056,7 @@ async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicio
         // Verificación histórica.
         texto(fechaFabricacion, 294, 486, 8, false);
         texto(fechaCompra, 619, 486, 8, false);
-        texto(fechaPrimerUso, 1020, 486, 8, false);
+        texto(fechaPrimerUso, 1040, 486, 8, false);
         texto(textoDocumentoIrudek(numeroSerie,22), 294, 510, 8, false);
         texto(textoDocumentoIrudek(numeroLote,22), 619, 510, 8, false);
 
@@ -13087,14 +13087,17 @@ async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicio
 
         // Veredicto: se marcan las casillas originales de la plantilla.
         const resultado = String(revision.resultado || "").toUpperCase();
-        if (resultado.includes("NO APTO")) marcar(1104.4,1520.8);
-        else marcar(594.2,1520.8);
+        // La casilla APTO está a la izquierda; NO APTO, a la derecha.
+        // La X se sitúa en la franja de veredicto, no en el bloque de comentarios.
+        if (resultado.includes("NO APTO")) marcar(1104.4,1501);
+        else marcar(594.2,1501);
 
         // Fecha de revisión, próxima revisión y verificador.
         // No borrar la zona del veredicto: contiene los textos oficiales APTO/NO APTO.
         // Escribir los datos únicamente en las filas de fecha y verificador.
-        texto(formatearFechaDocumentoIrudek(revision.fechaRevision || obtenerFechaActual()), 289, 1582, 8, false);
-        texto(formatearFechaDocumentoIrudek(revision.fechaProximaRevision || ""), 818, 1582, 8, false);
+        // No se borra el fondo: se respetan los rótulos impresos de la plantilla.
+        texto(formatearFechaDocumentoIrudek(revision.fechaRevision || obtenerFechaActual()), 289, 1589, 8, false);
+        texto(formatearFechaDocumentoIrudek(revision.fechaProximaRevision || ""), 850, 1589, 8, false);
         texto(textoDocumentoIrudek(revision.verificadoPor || dg.auditor || "",80), 262, 1612, 8, false);
 
         // Firma del auditor si existe en la auditoría recuperada.
