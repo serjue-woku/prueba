@@ -13009,9 +13009,16 @@ function obtenerFechaProximaRevisionDocumentoIrudek(revision) {
     const indicada = String(revision && revision.fechaProximaRevision || "").trim();
     if (indicada) return indicada;
     const base = String(revision && revision.fechaRevision || "").trim() || obtenerFechaActual();
-    const m = base.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!m) return "";
-    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    let anio, mes, dia;
+    let m = base.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) {
+        anio = Number(m[1]); mes = Number(m[2]); dia = Number(m[3]);
+    } else {
+        m = base.match(/^(\d{2})[\/.-](\d{2})[\/.-](\d{4})$/);
+        if (!m) return "";
+        dia = Number(m[1]); mes = Number(m[2]); anio = Number(m[3]);
+    }
+    const d = new Date(anio, mes - 1, dia);
     if (Number.isNaN(d.getTime())) return "";
     d.setFullYear(d.getFullYear() + 1);
     return d.getFullYear() + "-" +
@@ -13075,30 +13082,49 @@ async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicio
             if (filasY[i] != null) marcar(colX[r], filasY[i]);
         });
 
-        // Comentarios: se conserva exactamente el marco y el rótulo de la plantilla.
-        borrar(58.5,1370.8,1102.9,132);
+        // Observaciones: usar los comentarios escritos y añadir controles que requieran atención.
+        // Solo se limpia el interior del cuadro blanco, sin invadir el marco ni el veredicto.
+        borrar(62,1375,1093,126);
+        const observaciones = [];
         const comentarios = String(revision.comentarios || "").trim();
-        if (comentarios) {
-            doc.setFont(fuente,"normal");
-            doc.setFontSize(7.3);
-            const lines = doc.splitTextToSize(comentarios, px(1058));
-            doc.text(lines.slice(0,18), px(71), py(1387));
-        }
+        if (comentarios) observaciones.push(comentarios);
+        controles.forEach((item) => {
+            const c = mapa[item[0]] || {};
+            let r = String(c.resultado || config.resultadoControlDefault || "B").trim().toUpperCase();
+            if (r === "CORRECTO") r = "B";
+            if (r === "NO_PROCEDE") r = "NP";
+            if (r === "INCORRECTO") r = "M";
+            if (r && !["B","CORRECTO"].includes(r)) {
+                const detalle = String(c.observaciones || c.comentarios || c.descripcion || "").trim();
+                observaciones.push("• " + String(item[1] || item[0]) + ": " + r + (detalle ? " — " + detalle : ""));
+            }
+        });
+        if (!observaciones.length) observaciones.push("Sin observaciones adicionales registradas.");
+        doc.setFont(fuente,"normal");
+        doc.setFontSize(7.1);
+        const textoObservaciones = observaciones.join("\n");
+        const lines = doc.splitTextToSize(textoObservaciones, px(1055));
+        doc.text(lines.slice(0,22), px(71), py(1387));
 
         // Veredicto: se marcan las casillas originales de la plantilla.
         const resultado = String(revision.resultado || "").toUpperCase();
         // La casilla APTO está a la izquierda; NO APTO, a la derecha.
         // La X se sitúa en la franja de veredicto, no en el bloque de comentarios.
-        if (resultado.includes("NO APTO")) marcar(1104.4,1501);
-        else marcar(594.2,1501);
+        if (resultado.includes("NO APTO")) marcar(1117,1548);
+        else marcar(630,1548);
 
         // Fecha de revisión, próxima revisión y verificador.
         // No borrar la zona del veredicto: contiene los textos oficiales APTO/NO APTO.
         // Escribir los datos únicamente en las filas de fecha y verificador.
-        // No se borra el fondo: se respetan los rótulos impresos de la plantilla.
-        texto(formatearFechaDocumentoIrudek(revision.fechaRevision || obtenerFechaActual()), 289, 1589, 8, false);
-        texto(formatearFechaDocumentoIrudek(revision.fechaProximaRevision || ""), 850, 1589, 8, false);
-        texto(textoDocumentoIrudek(revision.verificadoPor || dg.auditor || "",80), 262, 1612, 8, false);
+        const fechaRevisionDocumento = formatearFechaDocumentoIrudek(revision.fechaRevision || obtenerFechaActual());
+        const fechaProximaDocumento = formatearFechaDocumentoIrudek(obtenerFechaProximaRevisionDocumentoIrudek(revision));
+        // Limpiar únicamente las celdas de valor de la fila de fechas; los rótulos quedan intactos.
+        borrar(247, 1570, 315, 25);
+        borrar(838, 1570, 324, 25);
+        // Las dos fechas se escriben en la fila correspondiente, sin superponer la fecha de muestra.
+        texto(fechaRevisionDocumento, 289, 1589, 7.5, false);
+        texto(fechaProximaDocumento, 850, 1589, 7.5, false);
+        texto(textoDocumentoIrudek(revision.verificadoPor || dg.auditor || "",80), 262, 1615, 7.5, false);
 
         // Firma del auditor si existe en la auditoría recuperada.
         const firma = auditoria.firmas && (auditoria.firmas.auditor || auditoria.firmas.firmaAuditor);
