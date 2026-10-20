@@ -14,33 +14,37 @@ const APP_AUDITORIAS_GAS_URL = "https://script.google.com/macros/s/AKfycbylJ9W5l
 async function appGasPost(payload) {
     const accion = String((payload && payload.accion) || "POST");
     const body = new URLSearchParams();
-    body.set("payload", JSON.stringify(payload || {}));
+    const copia = Object.assign({}, payload || {});
+    const esLogin = accion === "iniciarSesion";
+    if (!esLogin) {
+        const token = sessionStorage.getItem("appAuditoriasSessionToken");
+        if (!token) throw new Error("La sesión no está iniciada. Accede de nuevo a la aplicación.");
+        copia.sessionToken = token;
+    }
+    body.set("payload", JSON.stringify(copia));
     let r;
     try {
         r = await fetch(APP_AUDITORIAS_GAS_URL, {
-            method: "POST",
-            body,
-            redirect: "follow",
-            cache: "no-store"
+            method: "POST", body, redirect: "follow", cache: "no-store"
         });
     } catch (err) {
         throw new Error("No se pudo conectar con la BBDD (" + accion + "): " + (err.message || err));
     }
-
     const text = await r.text();
     let data;
     try { data = JSON.parse(text); } catch (_) {
         const preview = String(text || "").replace(/\s+/g, " ").slice(0, 700);
         const looksHtml = /<html|<!doctype html/i.test(text);
-        if (looksHtml) {
-            throw new Error(
-                "La BBDD respondió con HTML en la acción '" + accion + "' (HTTP " + r.status + "). " +
-                "La petición POST no ha devuelto el JSON esperado. Es posible que el payload sea demasiado grande o que Google haya rechazado/redirigido la petición. Respuesta: " + preview
-            );
-        }
+        if (looksHtml) throw new Error("La BBDD respondió con HTML en la acción '" + accion + "' (HTTP " + r.status + "). Respuesta: " + preview);
         throw new Error("Respuesta no válida de la BBDD en '" + accion + "' (HTTP " + r.status + "): " + preview);
     }
-    if (!data.ok) throw new Error((data.error || "La BBDD devolvió un error.") + " [acción: " + accion + "]");
+    if (!data.ok) {
+        if (data.codigo === "SESION_CADUCADA" || data.codigo === "SESION_REQUERIDA" || data.codigo === "USUARIO_DESACTIVADO") {
+            sessionStorage.removeItem("appAuditoriasSessionToken");
+            window.dispatchEvent(new CustomEvent("appAuditoriasSesionCaducada"));
+        }
+        throw new Error((data.error || "La BBDD devolvió un error.") + " [acción: " + accion + "]");
+    }
     return data;
 }
 
@@ -177,19 +181,8 @@ async function guardarAuditoriaYFotografias(tipo, auditoria) {
 }
 
 async function appGasGet(payload) {
-    const params = new URLSearchParams(payload || {});
-    const url = APP_AUDITORIAS_GAS_URL + (APP_AUDITORIAS_GAS_URL.includes("?") ? "&" : "?") + params.toString();
-    const r = await fetch(url, { method: "GET", cache: "no-store" });
-    const text = await r.text();
-    let data;
-    try { data = JSON.parse(text); } catch (_) {
-        const looksHtml = /^\s*<!doctype html|^\s*<html/i.test(text);
-        throw new Error(looksHtml
-            ? "La BBDD ha devuelto una respuesta no válida al consultar las estadísticas. Compruebe la conexión con la BBDD."
-            : "Respuesta no válida de la BBDD: " + text.slice(0, 300));
-    }
-    if (!data.ok) throw new Error(data.error || "La BBDD devolvió un error.");
-    return data;
+    // Se transporta por POST para no exponer el token de sesión en la URL o en registros HTTP.
+    return appGasPost(payload || {});
 }
 
 async function blobADataUrl(blob) {
@@ -2701,6 +2694,7 @@ function obtenerResumenEscaleras() {
         fabricante: u.datos && u.datos.fabricante || "",
         modelo: u.datos && u.datos.modelo || "",
         identificacion: u.datos && u.datos.identificacion || "",
+        fechaRevision: u.datos && u.datos.fechaRevision || "",
         estado: u.estado || "NO_INICIADO",
         incorrectos: Object.values(u.controles || {}).filter(c => c && c.resultado === "INCORRECTO").length,
         fotografiasIdentificacion: u.fotografiasIdentificacion || {}
@@ -2913,7 +2907,7 @@ function renderizarResumenFinalizar() {
 
     const epiHtml = epis.length ? `<div class="table-responsive"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left;padding:6px;">EPI</th><th>Marca</th><th>Modelo</th><th>Identificación</th><th>Controles</th><th>Veredicto</th></tr></thead><tbody>${epis.map(e => `<tr><td style="padding:6px;">${escaparValorResumen(e.nombre)}</td><td>${escaparValorResumen(e.marca)}</td><td>${escaparValorResumen(e.modelo)}</td><td>${escaparValorResumen(e.identificacion)}</td><td>${e.controles}</td><td>${escaparValorResumen(e.resultado || "Pendiente")}</td></tr>`).join("")}</tbody></table></div>` : `<p>No hay elementos de EPIs registrados.</p>`;
     const radioHtml = radio.length ? `<div class="table-responsive"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left;padding:6px;">Equipo</th><th>Marca</th><th>Modelo</th><th>Identificación</th><th>Veredicto</th></tr></thead><tbody>${radio.map(e => `<tr><td style="padding:6px;">${escaparValorResumen(e.nombre)}</td><td>${escaparValorResumen(e.marca)}</td><td>${escaparValorResumen(e.modelo)}</td><td>${escaparValorResumen(e.identificacion)}</td><td>${escaparValorResumen(e.resultado || "Pendiente")}</td></tr>`).join("")}</tbody></table></div>` : `<p>No hay elementos específicos de RADIO registrados.</p>`;
-    const escHtml = escaleras.length ? `<div class="table-responsive"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left;padding:6px;">Escalera</th><th>Tipo</th><th>Fabricante</th><th>Modelo</th><th>Identificación</th><th>Estado</th></tr></thead><tbody>${escaleras.map(e => `<tr><td style="padding:6px;">${escaparValorResumen(e.nombre)}</td><td>${escaparValorResumen(e.tipo)}</td><td>${escaparValorResumen(e.fabricante)}</td><td>${escaparValorResumen(e.modelo)}</td><td>${escaparValorResumen(e.identificacion)}</td><td>${escaparValorResumen(textoEstadoResumen(e.estado))}</td></tr>`).join("")}</tbody></table></div>` : `<p>No hay escaleras registradas.</p>`;
+    const escHtml = escaleras.length ? `<div class="table-responsive"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left;padding:6px;">Escalera</th><th>Tipo</th><th>Fabricante</th><th>Modelo</th><th>Identificación</th><th>Fecha revisión</th><th>Estado</th></tr></thead><tbody>${escaleras.map(e => `<tr><td style="padding:6px;">${escaparValorResumen(e.nombre)}</td><td>${escaparValorResumen(e.tipo)}</td><td>${escaparValorResumen(e.fabricante)}</td><td>${escaparValorResumen(e.modelo)}</td><td>${escaparValorResumen(e.identificacion)}</td><td>${escaparValorResumen(e.fechaRevision || "No indicada")}</td><td>${escaparValorResumen(textoEstadoResumen(e.estado))}</td></tr>`).join("")}</tbody></table></div>` : `<p>No hay escaleras registradas.</p>`;
     const incHtml = incidencias.length ? `<div class="table-responsive"><table style="width:100%;border-collapse:collapse;"><thead><tr><th>ID</th><th style="text-align:left;padding:6px;">Elemento</th><th>Descripción</th><th>Medida correctora</th><th>Estado</th><th>Fotos</th></tr></thead><tbody>${incidencias.map(i => `<tr><td>${escaparValorResumen(i.id)}</td><td style="padding:6px;">${escaparValorResumen(i.control || i.subcontrol || i.modulo || "")}</td><td>${escaparValorResumen(i.descripcion)}</td><td>${escaparValorResumen(i.medida)}</td><td>${escaparValorResumen(i.estado || "ABIERTA")}</td><td>${Array.isArray(i.fotografias) ? i.fotografias.length : 0}</td></tr>`).join("")}</tbody></table></div>` : `<p>No hay incidencias registradas.</p>`;
 
     contenido.innerHTML = `<div class="card"><h3>Resumen de la auditoría</h3>${datosHtml}</div>
@@ -3464,8 +3458,8 @@ function crearPdfAuditoriaLocal() {
         titulo("7. Escaleras");
         if (moduloEstaNoAplica("escaleras")) mostrarModuloNoAplica("Escaleras");
         else if (escaleras.length) {
-            tabla(escaleras.map(e=>[e.nombre,e.tipo,e.fabricante,e.modelo,e.identificacion,textoEstadoResumen(e.estado)]),
-                [28,23,31,29,32,39],["Escalera","Tipo","Fabricante","Modelo","Identificación","Estado"]);
+            tabla(escaleras.map(e=>[e.nombre,e.tipo,e.fabricante,e.modelo,e.identificacion,e.fechaRevision || "No indicada",textoEstadoResumen(e.estado)]),
+                [24,19,27,24,27,28,25],["Escalera","Tipo","Fabricante","Modelo","Identificación","Fecha revisión","Estado"]);
             const unidadesEsc = auditoria.modulos.escaleras.unidades || [];
             unidadesEsc.forEach((unidad,idx)=>{
                 inicializarFotografiasIdentificacionEscalera(unidad);
@@ -7412,7 +7406,7 @@ function cambiarResultadoBotiquin(nombre, resultado) {
     renderizarModuloBotiquin();
     actualizarDashboard();
 }
-function seleccionarFotografiaEnMemoria(callback) {
+function seleccionarFotografiaEnMemoria(callback, modoCamaraInicial) {
     /*
        Selector común de fotografías.
        - "Hacer foto": intenta abrir directamente la cámara trasera en móviles
@@ -7559,6 +7553,10 @@ function seleccionarFotografiaEnMemoria(callback) {
     overlay.addEventListener("click", function (event) {
         if (event.target === overlay) cerrarSelector();
     });
+
+    // Si el llamador ya ha elegido una opción, abre directamente ese selector.
+    // Los demás módulos conservan el cuadro común con ambas alternativas.
+    if (typeof modoCamaraInicial === "boolean") abrirInput(modoCamaraInicial);
 }
 
 function obtenerFotografiasIncidencia(incidencia) {
@@ -7622,6 +7620,18 @@ function sincronizarIncidenciaConOrigen(incidencia) {
             c.medida = incidencia.medida || "";
             c.observaciones = incidencia.observaciones || "";
             c.foto = incidencia.foto || (incidencia.fotografias && incidencia.fotografias[0]) || null;
+        }
+        return;
+    }
+
+    if (incidencia.origen === "ESCALERAS_FECHA_REVISION" && incidencia.unidadEscaleraId) {
+        const unidad = obtenerUnidadEscalera(incidencia.unidadEscaleraId);
+        const c = unidad && unidad.controles && unidad.controles.fechaRevision;
+        if (c) {
+            c.descripcion = incidencia.descripcion || "";
+            c.medida = incidencia.medida || "";
+            c.observaciones = incidencia.observaciones || "";
+            c.fotografias = incidencia.fotografias || [];
         }
         return;
     }
@@ -7837,6 +7847,7 @@ function crearUnidadEscaleraVacia(tipo = "") {
             fabricante: "",
             modelo: "",
             identificacion: "",
+            fechaRevision: "",
             observaciones: ""
         },
         controles: {},
@@ -7991,6 +8002,7 @@ function inicializarEscaleras() {
                 fabricante: escaleras.datos.fabricante || "",
                 modelo: escaleras.datos.modelo || "",
                 identificacion: escaleras.datos.identificacion || "",
+                fechaRevision: escaleras.datos.fechaRevision || "",
                 observaciones: escaleras.datos.observaciones || ""
             };
         }
@@ -8009,7 +8021,12 @@ function inicializarEscaleras() {
     escaleras.unidades.forEach(unidad => {
         if (!unidad.id) unidad.id = "ESC-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
         if (!unidad.datos) {
-            unidad.datos = { fabricante: "", modelo: "", identificacion: "", observaciones: "" };
+            unidad.datos = { fabricante: "", modelo: "", identificacion: "", fechaRevision: "", observaciones: "" };
+        }
+        if (typeof unidad.datos.fechaRevision !== "string") unidad.datos.fechaRevision = "";
+        if (!unidad.controles || typeof unidad.controles !== "object") unidad.controles = {};
+        if (!unidad.controles.fechaRevision || typeof unidad.controles.fechaRevision !== "object") {
+            unidad.controles.fechaRevision = { resultado: "CORRECTO", descripcion: "", medida: "", observaciones: "", fotografias: [] };
         }
         inicializarControlesUnidadEscalera(unidad);
         inicializarFotografiasIdentificacionEscalera(unidad);
@@ -8020,6 +8037,7 @@ function inicializarEscaleras() {
 function renderizarModuloEscaleras() {
 
     inicializarEscaleras();
+    evaluarFechasRevisionEscaleras();
 
     const contenido = document.getElementById("contenidoModulo");
     const escaleras = auditoria.modulos.escaleras;
@@ -8168,6 +8186,12 @@ function renderizarDatosUnidadEscalera(unidad) {
                     <input type="text" value="${escapeHtml(datos.identificacion || "")}"
                         oninput="actualizarDatoUnidadEscalera('${unidad.id}', 'identificacion', this.value)">
                 </div>
+                <div class="field">
+                    <label>Fecha de última revisión</label>
+                    <input type="date" value="${escapeHtml(datos.fechaRevision || "")}"
+                        onchange="actualizarFechaRevisionUnidadEscalera('${unidad.id}', this.value)">
+                    <small>Se generará una incidencia automática cuando hayan transcurrido 6 meses o más en la fecha de auditoría.</small>
+                </div>
             </div>
             <div class="field">
                 <label>Observaciones generales</label>
@@ -8259,6 +8283,90 @@ function cambiarTipoUnidadEscalera(idUnidad, tipo) {
     actualizarDashboard();
 }
 
+
+function fechaEscaleraDesdeISO(valor) {
+    if (!valor) return null;
+    const partes = String(valor).split("-").map(Number);
+    if (partes.length !== 3 || partes.some(n => !Number.isFinite(n))) return null;
+    const fecha = new Date(partes[0], partes[1] - 1, partes[2]);
+    fecha.setHours(0, 0, 0, 0);
+    return Number.isNaN(fecha.getTime()) ? null : fecha;
+}
+
+function fechaAuditoriaEscaleras() {
+    const campo = document.getElementById("fechaAuditoria");
+    const valor = (campo && campo.value) || (auditoria.datosGenerales && auditoria.datosGenerales.fecha) || "";
+    if (campo && campo.value && auditoria.datosGenerales) auditoria.datosGenerales.fecha = campo.value;
+    return fechaEscaleraDesdeISO(valor);
+}
+
+function revisionEscaleraVencida(unidad) {
+    const fechaRevision = fechaEscaleraDesdeISO(unidad && unidad.datos && unidad.datos.fechaRevision);
+    const fechaAuditoria = fechaAuditoriaEscaleras();
+    if (!fechaRevision || !fechaAuditoria || fechaRevision > fechaAuditoria) return false;
+    const diaOriginal = fechaRevision.getDate();
+    const primerDiaMesLimite = new Date(fechaRevision.getFullYear(), fechaRevision.getMonth() + 6, 1);
+    const ultimoDiaMesLimite = new Date(primerDiaMesLimite.getFullYear(), primerDiaMesLimite.getMonth() + 1, 0).getDate();
+    primerDiaMesLimite.setDate(Math.min(diaOriginal, ultimoDiaMesLimite));
+    return fechaAuditoria >= primerDiaMesLimite;
+}
+
+function evaluarFechaRevisionUnidadEscalera(idUnidad) {
+    const unidad = obtenerUnidadEscalera(idUnidad);
+    if (!unidad) return;
+    if (!unidad.controles || typeof unidad.controles !== "object") unidad.controles = {};
+    if (!unidad.controles.fechaRevision) unidad.controles.fechaRevision = { resultado: "CORRECTO", descripcion: "", medida: "", observaciones: "", fotografias: [] };
+    const control = unidad.controles.fechaRevision;
+    const fechaIndicada = !!(unidad.datos && unidad.datos.fechaRevision);
+    const vencida = fechaIndicada && revisionEscaleraVencida(unidad);
+    const id = "ESCALERAS_" + idUnidad + "_fechaRevision";
+    const existente = (auditoria.incidencias || []).find(i => i.id === id);
+
+    if (vencida) {
+        control.resultado = "INCORRECTO";
+        control.descripcion = "La última revisión de la escalera tiene una antigüedad de seis meses o superior respecto a la fecha de auditoría.";
+        control.medida = "Realizar la revisión periódica de la escalera y actualizar la identificación/etiqueta de revisión.";
+        control.observaciones = "Incidencia generada automáticamente al alcanzar o superar seis meses desde la fecha de revisión indicada.";
+        const incidencia = existente || { id, origen: "ESCALERAS_FECHA_REVISION", modulo: "ESCALERAS", unidadEscaleraId: idUnidad, controlClave: "fechaRevision", control: obtenerNombreControlEscalera("fechaRevision"), resultado: "INCORRECTO", estado: "ABIERTA", fechaIncidencia: obtenerFechaActual() };
+        incidencia.origen = "ESCALERAS_FECHA_REVISION";
+        incidencia.modulo = "ESCALERAS";
+        incidencia.unidadEscaleraId = idUnidad;
+        incidencia.controlClave = "fechaRevision";
+        incidencia.control = obtenerNombreControlEscalera("fechaRevision");
+        incidencia.resultado = "INCORRECTO";
+        incidencia.descripcion = control.descripcion;
+        incidencia.medida = control.medida;
+        incidencia.observaciones = control.observaciones;
+        if (!existente) auditoria.incidencias.push(incidencia);
+        control.incidenciaId = id;
+    } else {
+        if (existente && existente.origen === "ESCALERAS_FECHA_REVISION") {
+            auditoria.incidencias = auditoria.incidencias.filter(i => i.id !== id);
+            control.descripcion = "";
+            control.medida = "";
+            control.observaciones = "";
+        }
+        control.resultado = "CORRECTO";
+        control.incidenciaId = null;
+    }
+}
+
+function actualizarFechaRevisionUnidadEscalera(idUnidad, valor) {
+    const unidad = obtenerUnidadEscalera(idUnidad);
+    if (!unidad) return;
+    if (!unidad.datos) unidad.datos = {};
+    unidad.datos.fechaRevision = valor || "";
+    evaluarFechaRevisionUnidadEscalera(idUnidad);
+    auditoria.modulos.escaleras.estado = "EN_CURSO";
+    renderizarModuloEscaleras();
+    actualizarDashboard();
+}
+
+function evaluarFechasRevisionEscaleras() {
+    const unidades = auditoria && auditoria.modulos && auditoria.modulos.escaleras && auditoria.modulos.escaleras.unidades;
+    if (!Array.isArray(unidades)) return;
+    unidades.forEach(u => evaluarFechaRevisionUnidadEscalera(u.id));
+}
 
 function actualizarDatoUnidadEscalera(idUnidad, campo, valor) {
 
@@ -8454,7 +8562,8 @@ function obtenerNombreControlEscalera(nombre) {
         sujecionFijacion: "Sistema de sujeción o fijación adecuado cuando es necesario",
         protecciones: "Barandillas y protecciones adecuadas cuando corresponden",
         accesoDescenso: "Acceso y descenso seguros",
-        ausenciaObstaculos: "Ausencia de obstáculos o condiciones que dificulten la utilización"
+        ausenciaObstaculos: "Ausencia de obstáculos o condiciones que dificulten la utilización",
+        fechaRevision: "Fecha de revisión de la escalera (6 meses o más)"
     };
 
     return nombres[nombre] || nombre;
@@ -8464,6 +8573,7 @@ function obtenerNombreControlEscalera(nombre) {
 function guardarEscaleras() {
 
     const escaleras = auditoria.modulos.escaleras;
+    evaluarFechasRevisionEscaleras();
 
     if (escaleras.dispone === false) {
         escaleras.estado = "NO_APLICA";
@@ -10445,7 +10555,8 @@ function actualizarVeredictoRevisionFabricanteRadio(idUnidad, valor) {
 
 function actualizarRevisionFabricanteMultiple(claveEpi, idUnidad, claveSub, resultado) {
     const control = auditoria.modulos.epis.controles[claveEpi];
-    const unidad = control && control.unidades ? control.unidades[idUnidad] : null;
+    const unidad = resolverUnidadRevisionFabricante(claveEpi, idUnidad) ||
+        (control && control.unidades ? control.unidades[idUnidad] : null);
     if (!unidad) return;
     const config = obtenerConfiguracionRevisionFabricante(unidad.campos && unidad.campos.marca, claveEpi);
     inicializarRevisionFabricante(unidad, config);
@@ -10456,12 +10567,28 @@ function actualizarRevisionFabricanteMultiple(claveEpi, idUnidad, claveSub, resu
     actualizarDashboard();
 }
 
+function resolverUnidadRevisionFabricante(claveEpi, idUnidad) {
+    const control = auditoria && auditoria.modulos && auditoria.modulos.epis &&
+        auditoria.modulos.epis.controles ? auditoria.modulos.epis.controles[claveEpi] : null;
+    if (!control || !Array.isArray(control.unidades)) return null;
+    const id = String(idUnidad == null ? "" : idUnidad).trim();
+    if (!id) return null;
+    // Acepta índice numérico (incluido 0) o identificador estable de unidad.
+    if (/^\d+$/.test(id) && control.unidades[Number(id)]) return control.unidades[Number(id)];
+    return control.unidades.find(u => u && String(u.id || "").trim() === id) || null;
+}
+
 function actualizarCampoRevisionFabricanteMultiple(claveEpi, idUnidad, campo, valor) {
     const control = auditoria.modulos.epis.controles[claveEpi];
-    const unidad = control && control.unidades ? control.unidades[idUnidad] : null;
-    if (!unidad) return;
+    const unidad = resolverUnidadRevisionFabricante(claveEpi, idUnidad) ||
+        (control && control.unidades ? control.unidades[idUnidad] : null);
+    if (!unidad) {
+        console.warn("No se encontró la unidad para guardar el campo de revisión del fabricante", {claveEpi, idUnidad, campo});
+        return;
+    }
     inicializarRevisionFabricante(unidad);
-    if (Object.prototype.hasOwnProperty.call(unidad.revisionFabricante, campo)) {
+    const camposEditables = ["comentarios", "fechaRevision", "fechaProximaRevision", "verificadoPor", "resultado"];
+    if (camposEditables.includes(String(campo))) {
         unidad.revisionFabricante[campo] = String(valor == null ? "" : valor);
     }
     auditoria.modulos.epis.estado = "EN_CURSO";
@@ -10514,7 +10641,7 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
         if (esRevisionRadio) {
             return `actualizarRevisionFabricanteRadio(${JSON.stringify(String(idUnidad))},${JSON.stringify(String(clave))},${JSON.stringify(String(valor))})`;
         }
-        if (idUnidad) {
+        if (idUnidad !== null && idUnidad !== undefined && String(idUnidad) !== "") {
             return `actualizarRevisionFabricanteMultiple(${JSON.stringify(String(claveEpi))},${JSON.stringify(String(idUnidad))},${JSON.stringify(String(clave))},${JSON.stringify(String(valor))})`;
         }
         return `actualizarRevisionFabricanteGeneral(${JSON.stringify(String(claveEpi))},${JSON.stringify(String(clave))},${JSON.stringify(String(valor))})`;
@@ -10524,7 +10651,7 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
         if (esRevisionRadio) {
             return `actualizarCampoRevisionFabricanteRadio(${JSON.stringify(String(idUnidad))},${JSON.stringify(String(campo))},this.value)`;
         }
-        if (idUnidad) {
+        if (idUnidad !== null && idUnidad !== undefined && String(idUnidad) !== "") {
             return `actualizarCampoRevisionFabricanteMultiple(${JSON.stringify(String(claveEpi))},${JSON.stringify(String(idUnidad))},${JSON.stringify(String(campo))},this.value)`;
         }
         return `actualizarCampoRevisionFabricanteGeneral(${JSON.stringify(String(claveEpi))},${JSON.stringify(String(campo))},this.value)`;
@@ -10536,7 +10663,7 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
     let eventoVeredicto;
     if (esRevisionRadio) {
         eventoVeredicto = `actualizarVeredictoRevisionFabricanteRadio(${JSON.stringify(String(idUnidad))},this.value)`;
-    } else if (idUnidad) {
+    } else if (idUnidad !== null && idUnidad !== undefined && String(idUnidad) !== "") {
         eventoVeredicto = `actualizarVeredictoRevisionFabricanteMultiple(${JSON.stringify(String(claveEpi))},${JSON.stringify(String(idUnidad))},this.value)`;
     } else {
         eventoVeredicto = `actualizarVeredictoRevisionFabricanteGeneral(${JSON.stringify(String(claveEpi))},this.value)`;
@@ -11842,12 +11969,248 @@ function instalarDashboardAuditoriasIndependientes() {
         .inc-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.inc-kpi{padding:16px;border:1px solid #ccc;border-radius:8px;background:#fff;text-align:center}.inc-kpi strong{display:block;font-size:1.8rem}.inc-table td,.inc-table th{padding:7px;border-bottom:1px solid #ddd;vertical-align:top}.inc-table th{white-space:nowrap}.inc-actions{display:flex;gap:6px;flex-wrap:wrap}.inc-badge{display:inline-block;padding:3px 8px;border-radius:12px;font-size:.78rem;font-weight:700;background:#eee}.inc-evidence-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.inc-evidence-card{border:1px solid #ccc;border-radius:7px;padding:8px;background:#fff}.inc-evidence-card img{width:100%;height:150px;object-fit:contain;background:#f5f5f5}.inc-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.inc-detail-grid .full{grid-column:1/-1}.inc-filter-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.inc-filter-grid label{display:flex;flex-direction:column;gap:4px}.inc-small{font-size:.82rem;color:#666}@media(max-width:900px){.inc-kpi-grid{grid-template-columns:repeat(2,1fr)}.inc-filter-grid,.inc-detail-grid{grid-template-columns:1fr}.inc-evidence-grid{grid-template-columns:1fr}.inc-detail-grid .full{grid-column:auto}}`;
       document.head.appendChild(stInc);
     }
-    sec.querySelector(".module-grid").insertAdjacentHTML("beforeend", `<button type="button" class="module-card summary-card" onclick="abrirDashboardEstadisticas()"><span class="module-icon">📊</span><strong>Estadísticas</strong><span class="status status-gray">BBDD</span></button><button type="button" class="module-card summary-card" onclick="abrirPanelEmpresas()"><span class="module-icon">🏢</span><strong>Empresas</strong><span class="status status-gray">Catálogo automático</span></button><button type="button" class="module-card summary-card" onclick="abrirGestionIncidencias()"><span class="module-icon">⚠️</span><strong>Gestión de incidencias</strong><span id="gestionIncidenciasBadge" class="status status-gray">Cargando…</span></button>`);
+    sec.querySelector(".module-grid").insertAdjacentHTML("beforeend", `<button type="button" class="module-card summary-card" onclick="abrirDashboardEstadisticas()"><span class="module-icon">📊</span><strong>Estadísticas</strong><span class="status status-gray">BBDD</span></button><button type="button" class="module-card summary-card" onclick="abrirPanelEmpresas()"><span class="module-icon">🏢</span><strong>Empresas</strong><span class="status status-gray">Catálogo automático</span></button><button type="button" class="module-card summary-card" onclick="abrirGestionIncidencias()"><span class="module-icon">⚠️</span><strong>Gestión de incidencias</strong><span id="gestionIncidenciasBadge" class="status status-gray">Consultar</span></button>`);
+    instalarResumenDashboardGeneral(sec);
     const tituloHeader = document.querySelector(".app-header h1");
     if (tituloHeader) tituloHeader.textContent = "Auditorías SPM Grupo Zener";
     inicializarAuditoriaCampo();
     instalarDashboardCampo();
 }
+
+/* =========================================================
+   V39 — DASHBOARD GENERAL (resumen consolidado)
+   Aislado de los módulos de auditoría y de las plantillas de fabricantes.
+   ========================================================= */
+function instalarResumenDashboardGeneral(menu) {
+    if (!menu || document.getElementById("resumenGeneralAuditorias")) return;
+    const resumen = document.createElement("section");
+    resumen.id = "resumenGeneralAuditorias";
+    resumen.className = "general-dashboard-summary";
+    resumen.innerHTML = `
+      <div class="general-dashboard-summary-head">
+        <div><h3>Resumen general</h3><p>Indicadores consolidados de las auditorías registradas.</p></div>
+        <div class="general-dashboard-actions"><span id="resumenGeneralActualizado" aria-live="polite">Pendiente de consulta</span><button type="button" class="secondary-button" id="btnActualizarResumenGeneral">↻ Actualizar indicadores</button></div>
+      </div>
+      <div class="general-dashboard-kpis" id="resumenGeneralKpis">
+        <div class="general-kpi"><span>Auditorías registradas</span><strong>—</strong></div>
+        <div class="general-kpi"><span>Auditorías de vehículos</span><strong>—</strong></div>
+        <div class="general-kpi"><span>Auditorías de campo</span><strong>—</strong></div>
+        <div class="general-kpi"><span>Auditorías con incidencias</span><strong>—</strong></div>
+        <div class="general-kpi"><span>Trabajadores registrados</span><strong>—</strong></div>
+        <div class="general-kpi"><span>Empresas registradas</span><strong>—</strong></div>
+      </div>
+      <p id="resumenGeneralEstado" class="general-dashboard-status" role="status" aria-live="polite">Los indicadores se cargarán al iniciar sesión.</p>
+      <section id="resumenIncidenciasDashboard" class="inc-summary-panel" aria-labelledby="incSummaryTitle">
+        <div class="inc-summary-head">
+          <div><h3 id="incSummaryTitle">Seguimiento de incidencias</h3><p>Incidencias registradas, filtrables por empresa y provincia.</p></div>
+          <div class="inc-summary-actions">
+            <button type="button" class="secondary-button" id="btnActualizarResumenIncidencias">↻ Actualizar incidencias</button>
+            <button type="button" class="secondary-button" id="btnAbrirGestionCompleta">Ver gestión completa</button>
+          </div>
+        </div>
+        <div class="inc-summary-filters">
+          <label>Empresa
+            <select id="incSummaryEmpresa"><option value="">Todas las empresas</option></select>
+          </label>
+          <label>Provincia
+            <select id="incSummaryProvincia"><option value="">Todas las provincias</option></select>
+          </label>
+        </div>
+        <div id="incSummaryKpis" class="inc-summary-kpis">
+          <div class="inc-summary-kpi"><span>Abiertas</span><strong>—</strong></div>
+          <div class="inc-summary-kpi"><span>En proceso</span><strong>—</strong></div>
+          <div class="inc-summary-kpi"><span>Pendientes de evidencias</span><strong>—</strong></div>
+          <div class="inc-summary-kpi"><span>Cerradas</span><strong>—</strong></div>
+        </div>
+        <div class="inc-followup-block">
+          <div class="inc-followup-heading"><div><h4>Incidencias que requieren seguimiento</h4><p>Ordenadas por vencimiento y urgencia. Las cerradas no aparecen en esta lista.</p></div><span id="incSummaryFollowupCount" class="inc-followup-count">0 pendientes</span></div>
+          <div class="table-responsive"><table class="inc-followup-table" style="width:100%;border-collapse:collapse">
+            <thead><tr><th>Prioridad</th><th>Incidencia / proyecto</th><th>Empresa / provincia</th><th>Estado</th><th>Responsable</th><th>Fecha prevista</th></tr></thead>
+            <tbody id="incSummaryFollowupTable"><tr><td colspan="6" style="text-align:center;padding:14px">Pulsa «Actualizar incidencias».</td></tr></tbody>
+          </table></div>
+        </div>
+        <p id="incSummaryStatus" class="general-dashboard-status" role="status" aria-live="polite">Pulsa «Actualizar incidencias» para consultar los datos.</p>
+      </section>`;
+    const grid = menu.querySelector(".module-grid");
+    if (grid) menu.insertBefore(resumen, grid);
+    else menu.appendChild(resumen);
+
+    if (!document.getElementById("estilosResumenGeneralAuditorias")) {
+      const style = document.createElement("style");
+      style.id = "estilosResumenGeneralAuditorias";
+      style.textContent = `
+        .general-dashboard-summary{margin:18px 0 24px;padding:18px;background:#f8fafc;border:1px solid #dbe3ec;border-radius:14px;color:#172033}
+        .general-dashboard-summary-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px;flex-wrap:wrap}
+        .general-dashboard-summary-head h3{margin:0 0 4px;font-size:1.15rem}
+        .general-dashboard-summary-head p{margin:0;color:#64748b;font-size:.92rem}
+        .general-dashboard-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+        .general-dashboard-actions span{font-size:.82rem;color:#64748b}
+        .general-dashboard-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+        .general-kpi{padding:14px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;min-width:0}
+        .general-kpi span{display:block;font-size:.84rem;color:#526174;line-height:1.35}
+        .general-kpi strong{display:block;margin-top:7px;font-size:1.65rem;line-height:1.2;color:#174a7c;font-variant-numeric:tabular-nums}
+        .general-dashboard-status{min-height:1.1em;margin:12px 0 0;font-size:.86rem;color:#64748b}
+        @media(max-width:760px){.general-dashboard-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.general-dashboard-summary-head{align-items:flex-start}.general-dashboard-actions{width:100%;justify-content:space-between}}
+        @media(max-width:440px){.general-dashboard-kpis{grid-template-columns:1fr}.general-dashboard-actions{align-items:stretch;flex-direction:column}}
+        .inc-summary-panel{margin-top:20px;padding-top:18px;border-top:1px solid #dbe3ec}
+        .inc-summary-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+        .inc-summary-head h3{margin:0 0 4px;font-size:1.08rem}
+        .inc-summary-head p{margin:0;color:#64748b;font-size:.9rem}
+        .inc-summary-actions{display:flex;gap:8px;flex-wrap:wrap}
+        .inc-summary-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
+        .inc-summary-filters label{display:flex;flex-direction:column;gap:5px;font-size:.9rem;font-weight:600}
+        .inc-summary-filters select{min-height:38px;border:1px solid #cbd5e1;border-radius:7px;padding:7px;background:#fff;color:#172033;font:inherit}
+        .inc-summary-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+        .inc-summary-kpi{padding:12px;background:#fff;border:1px solid #e2e8f0;border-radius:9px;min-width:0}
+        .inc-summary-kpi span{display:block;font-size:.82rem;color:#526174;line-height:1.35}
+        .inc-summary-kpi strong{display:block;margin-top:6px;font-size:1.5rem;color:#174a7c;font-variant-numeric:tabular-nums}
+        .inc-followup-block{margin-top:18px}.inc-followup-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+        .inc-followup-heading h4{margin:0 0 4px;font-size:1rem}.inc-followup-heading p{margin:0;color:#64748b;font-size:.84rem}
+        .inc-followup-count{font-size:.82rem;font-weight:700;padding:5px 9px;border-radius:20px;background:#e2e8f0;color:#334155}
+        .inc-followup-table th,.inc-followup-table td{padding:9px 8px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top;font-size:.86rem}
+        .inc-followup-table th{white-space:nowrap;background:#f1f5f9;color:#334155}.inc-followup-small{display:block;margin-top:3px;color:#64748b;font-size:.78rem}
+        .inc-priority{display:inline-block;padding:4px 8px;border-radius:12px;font-weight:700;font-size:.76rem;white-space:nowrap}
+        .inc-priority-overdue{background:#fee2e2;color:#991b1b}.inc-priority-soon{background:#ffedd5;color:#9a3412}.inc-priority-no-date{background:#fef3c7;color:#92400e}.inc-priority-normal{background:#dcfce7;color:#166534}
+        .inc-followup-empty{text-align:center!important;padding:16px!important;color:#64748b}.inc-followup-open{border:0;background:transparent;color:#175a9b;text-decoration:underline;cursor:pointer;padding:0;font:inherit;font-weight:700;text-align:left}
+        @media(max-width:760px){.inc-summary-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.inc-summary-filters{grid-template-columns:1fr}.inc-summary-actions{width:100%}.inc-followup-table{min-width:760px}}
+        @media(max-width:440px){.inc-summary-kpis{grid-template-columns:1fr}.inc-summary-actions button{width:100%}}
+      `;
+      document.head.appendChild(style);
+    }
+    const btn = document.getElementById("btnActualizarResumenGeneral");
+    if (btn) btn.addEventListener("click", () => actualizarResumenDashboardGeneral());
+    const btnInc = document.getElementById("btnActualizarResumenIncidencias");
+    if (btnInc) btnInc.addEventListener("click", () => actualizarResumenIncidenciasDashboard());
+    const btnGestion = document.getElementById("btnAbrirGestionCompleta");
+    if (btnGestion) btnGestion.addEventListener("click", () => abrirGestionIncidencias());
+    const empresaInc = document.getElementById("incSummaryEmpresa");
+    const provinciaInc = document.getElementById("incSummaryProvincia");
+    if (empresaInc) empresaInc.addEventListener("change", renderResumenIncidenciasDashboard);
+    if (provinciaInc) provinciaInc.addEventListener("change", renderResumenIncidenciasDashboard);
+}
+
+async function actualizarResumenDashboardGeneral() {
+    const host = document.getElementById("resumenGeneralKpis");
+    const estado = document.getElementById("resumenGeneralEstado");
+    const actualizado = document.getElementById("resumenGeneralActualizado");
+    if (!host) return;
+    if (estado) estado.textContent = "Consultando los indicadores en la base de datos…";
+    if (actualizado) actualizado.textContent = "Actualizando…";
+    const btn = document.getElementById("btnActualizarResumenGeneral");
+    if (btn) btn.disabled = true;
+    try {
+      const d = await cargarEstadisticasEmpresas();
+      const items = [
+        ["Auditorías registradas", Number(d.totalAuditorias || 0)],
+        ["Auditorías de vehículos", Number(d.vehiculos || 0)],
+        ["Auditorías de campo", Number(d.campo || 0)],
+        ["Auditorías con incidencias", Number(d.conIncidencias || 0)],
+        ["Trabajadores registrados", Number(d.totalTrabajadores || 0)],
+        ["Empresas registradas", Number(d.empresas || 0)]
+      ];
+      host.replaceChildren();
+      items.forEach(([label, value]) => {
+        const card = document.createElement("div"); card.className = "general-kpi";
+        const name = document.createElement("span"); name.textContent = label;
+        const number = document.createElement("strong"); number.textContent = value.toLocaleString("es-ES");
+        card.append(name, number); host.appendChild(card);
+      });
+      if (estado) estado.textContent = "Indicadores cargados correctamente desde la base de datos.";
+      if (actualizado) actualizado.textContent = "Actualizado: " + new Date().toLocaleString("es-ES", {dateStyle:"short", timeStyle:"short"});
+      return d;
+    } catch (e) {
+      if (estado) estado.textContent = "No se pudieron cargar los indicadores. Comprueba la sesión o pulsa Actualizar indicadores para reintentar.";
+      if (actualizado) actualizado.textContent = "Sin datos actualizados";
+      console.warn("Dashboard general: no se pudieron cargar los indicadores", e);
+      return null;
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+}
+window.actualizarResumenDashboardGeneral = actualizarResumenDashboardGeneral;
+
+let _resumenIncidenciasDashboardData = [];
+
+async function actualizarResumenIncidenciasDashboard() {
+    const status = document.getElementById("incSummaryStatus");
+    const button = document.getElementById("btnActualizarResumenIncidencias");
+    if (status) status.textContent = "Consultando incidencias en la base de datos…";
+    if (button) button.disabled = true;
+    try {
+        const data = await cargarIncidenciasGestion();
+        _resumenIncidenciasDashboardData = Array.isArray(data?.incidencias) ? data.incidencias : [];
+        actualizarOpcionesFiltroResumenIncidencias();
+        renderResumenIncidenciasDashboard();
+        if (status) status.textContent = "Incidencias actualizadas desde la base de datos: " +
+            _resumenIncidenciasDashboardData.length.toLocaleString("es-ES") + ".";
+        return data;
+    } catch (e) {
+        if (status) status.textContent = "No se pudieron cargar las incidencias. Comprueba la sesión y vuelve a intentarlo.";
+        console.warn("Dashboard: error al cargar resumen de incidencias", e);
+        return null;
+    } finally {
+        if (button) button.disabled = false;
+    }
+}
+
+function actualizarOpcionesFiltroResumenIncidencias() {
+    const empresa = document.getElementById("incSummaryEmpresa");
+    const provincia = document.getElementById("incSummaryProvincia");
+    const llenar = (select, valores, etiqueta) => {
+        if (!select) return;
+        const anterior = select.value;
+        const unicos = [...new Set(valores.map(v => String(v || "").trim()).filter(Boolean))]
+            .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+        select.replaceChildren();
+        const todos = document.createElement("option");
+        todos.value = "";
+        todos.textContent = etiqueta;
+        select.appendChild(todos);
+        unicos.forEach(valor => {
+            const opt = document.createElement("option");
+            opt.value = valor;
+            opt.textContent = valor;
+            select.appendChild(opt);
+        });
+        if (unicos.includes(anterior)) select.value = anterior;
+    };
+    llenar(empresa, _resumenIncidenciasDashboardData.map(x => x.auditoria?.empresa), "Todas las empresas");
+    llenar(provincia, _resumenIncidenciasDashboardData.map(x => x.auditoria?.provincia), "Todas las provincias");
+}
+
+function renderResumenIncidenciasDashboard() {
+    const host = document.getElementById("incSummaryKpis");
+    if (!host) return;
+    const empresa = document.getElementById("incSummaryEmpresa")?.value || "";
+    const provincia = document.getElementById("incSummaryProvincia")?.value || "";
+    const norm = v => String(v || "").trim().toLocaleLowerCase("es");
+    const filas = _resumenIncidenciasDashboardData.filter(x =>
+        (!empresa || norm(x.auditoria?.empresa) === norm(empresa)) &&
+        (!provincia || norm(x.auditoria?.provincia) === norm(provincia))
+    );
+    const estado = x => String(x.estado || "ABIERTA").trim().toUpperCase();
+    const indicadores = [["Abiertas", filas.filter(x => estado(x) === "ABIERTA").length], ["En proceso", filas.filter(x => estado(x) === "EN PROCESO").length], ["Pendientes de evidencias", filas.filter(x => estado(x) === "PENDIENTE DE EVIDENCIAS").length], ["Cerradas", filas.filter(x => estado(x) === "CERRADA").length]];
+    host.replaceChildren();
+    indicadores.forEach(([titulo, valor]) => { const tarjeta=document.createElement("div"); tarjeta.className="inc-summary-kpi"; const etiqueta=document.createElement("span"); etiqueta.textContent=titulo; const numero=document.createElement("strong"); numero.textContent=Number(valor).toLocaleString("es-ES"); tarjeta.append(etiqueta,numero); host.appendChild(tarjeta); });
+    const tabla=document.getElementById("incSummaryFollowupTable"), contador=document.getElementById("incSummaryFollowupCount");
+    const activas=filas.filter(x=>estado(x)!=="CERRADA");
+    const parseDate=value=>{const m=String(value||"").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);if(!m)return null;const d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));return Number.isNaN(d.getTime())?null:d;};
+    const hoy=new Date();hoy.setHours(0,0,0,0);
+    const prioridad=x=>{const fecha=parseDate(x.fechaPrevista);if(!fecha)return{orden:2,texto:"SIN FECHA",clase:"inc-priority-no-date",dias:null};const dias=Math.round((fecha.getTime()-hoy.getTime())/86400000);if(dias<0)return{orden:0,texto:"VENCIDA",clase:"inc-priority-overdue",dias};if(dias<=7)return{orden:1,texto:dias===0?"VENCE HOY":"PRÓXIMA",clase:"inc-priority-soon",dias};return{orden:3,texto:"EN PLAZO",clase:"inc-priority-normal",dias};};
+    activas.sort((a,b)=>{const pa=prioridad(a),pb=prioridad(b);if(pa.orden!==pb.orden)return pa.orden-pb.orden;if(pa.dias!==null&&pb.dias!==null&&pa.dias!==pb.dias)return pa.dias-pb.dias;return String(a.fechaIncidencia||"").localeCompare(String(b.fechaIncidencia||""));});
+    if(contador)contador.textContent=activas.length.toLocaleString("es-ES")+" pendientes";
+    if(tabla){tabla.replaceChildren();if(!activas.length){const tr=document.createElement("tr"),td=document.createElement("td");td.colSpan=6;td.className="inc-followup-empty";td.textContent="No hay incidencias activas para los filtros seleccionados.";tr.appendChild(td);tabla.appendChild(tr);}else activas.forEach(x=>{
+      const p=prioridad(x),tr=document.createElement("tr"),tdP=document.createElement("td"),badge=document.createElement("span");badge.className="inc-priority "+p.clase;badge.textContent=p.texto;tdP.appendChild(badge);
+      const tdI=document.createElement("td"),abrir=document.createElement("button");abrir.type="button";abrir.className="inc-followup-open";abrir.textContent=String(x.id||"Sin ID");abrir.addEventListener("click",async()=>{await abrirGestionIncidencias();if(typeof abrirDetalleIncidenciaGestion==="function")abrirDetalleIncidenciaGestion(x.id);});
+      const subI=document.createElement("span");subI.className="inc-followup-small";subI.textContent=[x.auditoria?.proyecto||"",x.modulo||"",x.control||""].filter(Boolean).join(" · ")||"Sin proyecto/control";tdI.append(abrir,subI);
+      const tdE=document.createElement("td");tdE.textContent=x.auditoria?.empresa||"Sin empresa";const subP=document.createElement("span");subP.className="inc-followup-small";subP.textContent=x.auditoria?.provincia||"Sin provincia";tdE.appendChild(subP);
+      const tdS=document.createElement("td");tdS.textContent=estado(x);const tdR=document.createElement("td");tdR.textContent=String(x.responsable||"").trim()||"Sin asignar";const tdF=document.createElement("td");tdF.textContent=String(x.fechaPrevista||"").trim()||"Sin fecha";
+      if(p.dias!==null&&p.dias<0){const a=document.createElement("span");a.className="inc-followup-small";a.textContent="Retraso: "+Math.abs(p.dias)+" día(s)";tdF.appendChild(a);}else if(p.dias!==null&&p.dias<=7){const a=document.createElement("span");a.className="inc-followup-small";a.textContent=p.dias===0?"Vence hoy":"Quedan "+p.dias+" día(s)";tdF.appendChild(a);}
+      tr.append(tdP,tdI,tdE,tdS,tdR,tdF);tabla.appendChild(tr);
+    });}
+    const status=document.getElementById("incSummaryStatus");if(status)status.textContent="Mostrando "+filas.length.toLocaleString("es-ES")+" de "+_resumenIncidenciasDashboardData.length.toLocaleString("es-ES")+" incidencias según los filtros seleccionados.";
+}
+window.actualizarResumenIncidenciasDashboard = actualizarResumenIncidenciasDashboard;
 
 let _gestionIncidenciasData = [];
 let _gestionIncidenciasFiltros = {estado:'',empresa:'',proyecto:'',provincia:'',responsable:'',buscar:''};
@@ -11878,7 +12241,7 @@ function renderGestionIncidencias(d){
 function aplicarFiltrosIncidenciasGestion(){const g=id=>document.getElementById(id);_gestionIncidenciasFiltros={estado:g('incFiltroEstado')?.value||'',empresa:g('incFiltroEmpresa')?.value||'',proyecto:g('incFiltroProyecto')?.value||'',provincia:g('incFiltroProvincia')?.value||'',responsable:g('incFiltroResponsable')?.value||'',buscar:g('incFiltroBuscar')?.value||''}; const sec=document.getElementById('gestionIncidencias'); if(sec){const d={incidencias:_gestionIncidenciasData,abiertas:_gestionIncidenciasData.filter(x=>x.estado==='ABIERTA').length,enProceso:_gestionIncidenciasData.filter(x=>x.estado==='EN PROCESO').length,pendientesEvidencias:_gestionIncidenciasData.filter(x=>x.estado==='PENDIENTE DE EVIDENCIAS').length,cerradas:_gestionIncidenciasData.filter(x=>x.estado==='CERRADA').length};sec.innerHTML=renderGestionIncidencias(d);['incFiltroEstado','incFiltroEmpresa','incFiltroProyecto','incFiltroProvincia','incFiltroResponsable','incFiltroBuscar'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=_gestionIncidenciasFiltros[id.replace('incFiltro','').replace('Estado','estado').replace('Empresa','empresa').replace('Proyecto','proyecto').replace('Provincia','provincia').replace('Responsable','responsable').replace('Buscar','buscar')]||'';});}}
 async function abrirGestionIncidencias(){const sec=document.getElementById('gestionIncidencias');if(!sec)return;sec.innerHTML='<div class="card"><h2>Gestión de incidencias</h2><p>Cargando…</p></div>';mostrarPantalla('gestionIncidencias');try{const d=await cargarIncidenciasGestion();sec.innerHTML=renderGestionIncidencias(d);const b=document.getElementById('gestionIncidenciasBadge');if(b)b.textContent=Number(d.abiertas||0)+' abiertas';}catch(e){sec.innerHTML=`<div class="card"><h3>No se pudieron cargar las incidencias</h3><p>${escInc(e.message||e)}</p><button class="secondary-button" onclick="abrirGestionIncidencias()">Reintentar</button></div>`;}}
 function buscarIncidenciaGestion(id){return _gestionIncidenciasData.find(x=>String(x.id)===String(id));}
-function abrirDetalleIncidenciaGestion(id){const x=buscarIncidenciaGestion(id);if(!x)return;const sec=document.getElementById('gestionIncidencias');sec.innerHTML=`<div class="dashboard-header"><div><h2>Incidencia ${escInc(x.id)}</h2><p>Auditoría ${escInc(x.idAuditoria)} · ${escInc(x.auditoria?.fecha||'')}</p></div><button type="button" class="secondary-button" onclick="abrirGestionIncidencias()">← Incidencias</button></div><div class="card"><div class="inc-detail-grid"><div><b>Proyecto</b><div>${escInc(x.auditoria?.proyecto||'-')}</div></div><div><b>Empresa</b><div>${escInc(x.auditoria?.empresa||'-')}</div></div><div><b>Provincia</b><div>${escInc(x.auditoria?.provincia||'-')}</div></div><div><b>Trabajador</b><div>${escInc(x.auditoria?.trabajador||'-')} ${escInc(x.auditoria?.dni||'')}</div></div><div><b>Módulo</b><div>${escInc(x.modulo)}</div></div><div><b>Control</b><div>${escInc(x.control)}</div></div><div class="full"><b>Incumplimiento</b><div>${escInc(x.descripcion)}</div></div><div class="full"><b>Medida correctora</b><div>${escInc(x.medida||'-')}</div></div><div><label>Responsable de cierre<input id="incDetalleResponsable" value="${escInc(x.responsable)}"></label></div><div><label>Fecha prevista de cierre<input id="incDetalleFechaPrevista" type="date" value="${escInc(x.fechaPrevista)}"></label></div><div><label>Estado<select id="incDetalleEstado"><option>ABIERTA</option><option>EN PROCESO</option><option>PENDIENTE DE EVIDENCIAS</option><option>CERRADA</option></select></label></div><div><label>Fecha de cierre<input id="incDetalleFechaCierre" type="date" value="${escInc(x.fechaCierre)}"></label></div><div class="full"><label>Observaciones de cierre<textarea id="incDetalleObservaciones" rows="4">${escInc(x.observacionesCierre)}</textarea></label></div><div><label>Verificador del cierre<input id="incDetalleVerificador" value="${escInc(x.verificador)}"></label></div></div><div style="margin-top:14px" class="inc-actions"><button class="primary-button" type="button" onclick="guardarGestionIncidencia('${escInc(x.id)}')">💾 Guardar cambios</button><button class="secondary-button" type="button" onclick="cerrarGestionIncidencia('${escInc(x.id)}')">✓ Cerrar incidencia</button></div></div><div class="card"><h3>Evidencias</h3><p class="inc-small">Las evidencias quedan vinculadas a esta incidencia y se almacenan en Drive. Se admiten fotografías y documentos.</p><div class="inc-actions"><label class="primary-button" style="display:inline-block;cursor:pointer">📷 Añadir fotografías<input id="incEvidFotos" type="file" accept="image/*" capture="environment" multiple style="display:none" onchange="subirEvidenciasIncidencia('${escInc(x.id)}','FOTOGRAFIA',this.files)"></label><label class="secondary-button" style="display:inline-block;cursor:pointer">📄 Añadir documentos<input id="incEvidDocs" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.txt" multiple style="display:none" onchange="subirEvidenciasIncidencia('${escInc(x.id)}','DOCUMENTO',this.files)"></label></div><div id="incEvidenciasHost" class="inc-evidence-grid" style="margin-top:12px">${renderEvidenciasIncidencia(x.evidencias||[])}</div></div>`;document.getElementById('incDetalleEstado').value=x.estado;}
+function abrirDetalleIncidenciaGestion(id){const x=buscarIncidenciaGestion(id);if(!x)return;const sec=document.getElementById('gestionIncidencias');sec.innerHTML=`<div class="dashboard-header"><div><h2>Incidencia ${escInc(x.id)}</h2><p>Auditoría ${escInc(x.idAuditoria)} · ${escInc(x.auditoria?.fecha||'')}</p></div><button type="button" class="secondary-button" onclick="abrirGestionIncidencias()">← Incidencias</button></div><div class="card"><div class="inc-detail-grid"><div><b>Proyecto</b><div>${escInc(x.auditoria?.proyecto||'-')}</div></div><div><b>Empresa</b><div>${escInc(x.auditoria?.empresa||'-')}</div></div><div><b>Provincia</b><div>${escInc(x.auditoria?.provincia||'-')}</div></div><div><b>Trabajador</b><div>${escInc(x.auditoria?.trabajador||'-')} ${escInc(x.auditoria?.dni||'')}</div></div><div><b>Módulo</b><div>${escInc(x.modulo)}</div></div><div><b>Control</b><div>${escInc(x.control)}</div></div><div class="full"><b>Incumplimiento</b><div>${escInc(x.descripcion)}</div></div><div class="full"><b>Medida correctora</b><div>${escInc(x.medida||'-')}</div></div><div><label>Responsable de cierre<input id="incDetalleResponsable" value="${escInc(x.responsable)}"></label></div><div><label>Fecha prevista de cierre<input id="incDetalleFechaPrevista" type="date" value="${escInc(x.fechaPrevista)}"></label></div><div><label>Estado<select id="incDetalleEstado"><option>ABIERTA</option><option>EN PROCESO</option><option>PENDIENTE DE EVIDENCIAS</option><option>CERRADA</option></select></label></div><div><label>Fecha de cierre<input id="incDetalleFechaCierre" type="date" value="${escInc(x.fechaCierre)}"></label></div><div class="full"><label>Observaciones de cierre<textarea id="incDetalleObservaciones" rows="4">${escInc(x.observacionesCierre)}</textarea></label></div><div><label>Verificador del cierre<input id="incDetalleVerificador" value="${escInc(x.verificador)}"></label></div></div><div style="margin-top:14px" class="inc-actions"><button class="primary-button" type="button" onclick="guardarGestionIncidencia('${escInc(x.id)}')">💾 Guardar cambios</button><button class="secondary-button" type="button" onclick="cerrarGestionIncidencia('${escInc(x.id)}')">✓ Cerrar incidencia</button></div></div><div class="card"><h3>Evidencias</h3><p class="inc-small">Las evidencias quedan vinculadas a esta incidencia y se almacenan en Drive. Se admiten fotografías y documentos.</p><div class="inc-actions"><label class="primary-button" style="display:inline-block;cursor:pointer">🖼️ Elegir fotos del dispositivo<input id="incEvidFotos" type="file" accept="image/*" multiple style="display:none" onchange="subirEvidenciasIncidencia('${escInc(x.id)}','FOTOGRAFIA',this.files)"></label><label class="secondary-button" style="display:inline-block;cursor:pointer">📷 Abrir cámara<input id="incEvidFotosCamara" type="file" accept="image/*" capture="environment" style="display:none" onchange="subirEvidenciasIncidencia('${escInc(x.id)}','FOTOGRAFIA',this.files)"></label><label class="secondary-button" style="display:inline-block;cursor:pointer">📄 Añadir documentos<input id="incEvidDocs" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.txt" multiple style="display:none" onchange="subirEvidenciasIncidencia('${escInc(x.id)}','DOCUMENTO',this.files)"></label></div><div id="incEvidenciasHost" class="inc-evidence-grid" style="margin-top:12px">${renderEvidenciasIncidencia(x.evidencias||[])}</div></div>`;document.getElementById('incDetalleEstado').value=x.estado;}
 function renderEvidenciasIncidencia(ev){return (ev||[]).map(e=>`<div class="inc-evidence-card">${String(e.tipo)==='FOTOGRAFIA'?`<img src="${escInc(e.url)}" alt="Evidencia">`:'📄'}<div><b>${escInc(e.nombre)}</b></div><div class="inc-small">${escInc(e.fecha||'')} · ${escInc(e.tipo)}</div><a href="${escInc(e.url)}" target="_blank" rel="noopener">Abrir evidencia</a></div>`).join('')||'<div class="inc-small">No hay evidencias todavía.</div>';}
 async function guardarGestionIncidencia(id,forzarCierre){const x=buscarIncidenciaGestion(id);if(!x)return;const estado=document.getElementById('incDetalleEstado').value;const responsable=document.getElementById('incDetalleResponsable').value.trim();const fechaPrevista=document.getElementById('incDetalleFechaPrevista').value;const fechaCierre=document.getElementById('incDetalleFechaCierre').value;const observaciones=document.getElementById('incDetalleObservaciones').value;const verificador=document.getElementById('incDetalleVerificador').value.trim();if((forzarCierre||estado==='CERRADA')&&!responsable){alert('Indique el responsable de cierre antes de cerrar la incidencia.');return;}if(estado==='PENDIENTE DE EVIDENCIAS' && Number(x.evidencias?.length||0)>0){alert('Esta incidencia ya tiene evidencias. Cambie el estado a EN PROCESO o CERRADA.');return;}let confirmarCierreSinEvidencia='';if(forzarCierre||estado==='CERRADA'){const n=Number(x.evidencias?.length||0);if(n===0){const ok=confirm('Esta incidencia no tiene evidencias asociadas. ¿Desea cerrarla SIN evidencia?');if(!ok)return;confirmarCierreSinEvidencia='SI';}}try{await appGasPost({accion:'actualizarIncidencia',incidenciaId:id,estado:forzarCierre?'CERRADA':estado,responsable,fechaPrevista,fechaCierre:forzarCierre?(fechaCierre||new Date().toISOString().slice(0,10)):fechaCierre,observacionesCierre:observaciones,verificador,confirmarCierreSinEvidencia});alert('Incidencia actualizada correctamente.');await abrirGestionIncidencias();}catch(e){alert('No se pudo actualizar la incidencia: '+(e.message||e));}}
 function cerrarGestionIncidencia(id){guardarGestionIncidencia(id,true);}
@@ -11886,7 +12249,9 @@ function fileToDataUrlInc(file){return new Promise((res,rej)=>{const rd=new File
 async function subirEvidenciasIncidencia(id,tipo,files){const x=buscarIncidenciaGestion(id);if(!x)return;const lista=Array.from(files||[]);if(!lista.length)return;let ok=0;for(const file of lista){try{const dataUrl=await fileToDataUrlInc(file);await appGasPost({accion:'guardarEvidenciaIncidencia',incidenciaId:id,auditoriaId:x.idAuditoria,tipo,nombreSugerido:file.name,dataUrl});ok++;}catch(e){console.error(e);alert('No se pudo subir '+file.name+': '+(e.message||e));}}try{const d=await cargarIncidenciasGestion();const nuevo=d.incidencias.find(i=>String(i.id)===String(id));if(nuevo)abrirDetalleIncidenciaGestion(id);alert(ok+' evidencia(s) subida(s) correctamente.');}catch(e){alert(ok+' evidencia(s) subida(s). No se pudo refrescar la lista.');}}
 
 function abrirAuditoriaVehiculosDesdeInicio() {
-    // No se reinicia ni se borra la auditoría existente.
+    // No se reinicia ni se borra la auditoría existente. Recupera datos de Campo
+    // solo cuando Vehículos/Equipos todavía no tiene esos campos cumplimentados.
+    sincronizarDatosCampoEnVehiculos(true);
     mostrarPantalla("datosGenerales");
     inicializarCampoDniNie();
     instalarBotonMenuInicialVehiculos();
@@ -11999,6 +12364,75 @@ function sincronizarDatosVehiculosEnCampo() {
     }
 }
 
+function sincronizarDatosCampoEnVehiculos(soloSiVacio = false) {
+    if (!auditoria || !auditoria.datosGenerales || !auditoriaCampo || !auditoriaCampo.datos) return;
+    const d = auditoriaCampo.datos;
+    const dg = auditoria.datosGenerales;
+    dg.localizacion = dg.localizacion || {};
+    const trabajadores = Array.isArray(auditoriaCampo.trabajadores) ? auditoriaCampo.trabajadores : [];
+    const principal = trabajadores.find(t => String(t.nombre || '').trim()) || {};
+    const valores = {
+        fecha: d.fecha,
+        horaInicio: d.horaInicio,
+        auditor: d.auditor,
+        tipoPersonal: d.tipoPersonal,
+        actividad: d.actividad,
+        actividadOtra: d.actividadOtra,
+        empresa: d.empresa,
+        proyecto: d.proyecto,
+        trabajador: d.trabajador || principal.nombre,
+        dniNie: d.dniNie || principal.dni,
+        'localizacion.direccion': d.direccion,
+        'localizacion.poblacion': d.localizacion && d.localizacion.poblacion,
+        'localizacion.provincia': d.localizacion && d.localizacion.provincia,
+        'localizacion.codigoPostal': d.localizacion && d.localizacion.codigoPostal
+    };
+    const ids = {
+        fecha: 'fechaAuditoria', horaInicio: 'horaInicio', auditor: 'auditor',
+        tipoPersonal: 'tipoPersonal', actividad: 'actividad', actividadOtra: 'actividadOtra',
+        empresa: 'empresa', proyecto: 'proyecto', trabajador: 'trabajador', dniNie: 'dniNieTrabajador',
+        'localizacion.direccion': 'direccion', 'localizacion.poblacion': 'poblacion',
+        'localizacion.provincia': 'provincia', 'localizacion.codigoPostal': 'codigoPostal'
+    };
+    Object.entries(valores).forEach(([clave, valor]) => {
+        const texto = String(valor == null ? '' : valor).trim();
+        if (!texto) return; // No borrar datos existentes por campos de Campo vacíos.
+        const partes = clave.split('.');
+        const objeto = partes.length === 2 ? (dg[partes[0]] = dg[partes[0]] || {}) : dg;
+        const propiedad = partes[partes.length - 1];
+        const existente = String(objeto[propiedad] == null ? '' : objeto[propiedad]).trim();
+        if (soloSiVacio && existente) return;
+        objeto[propiedad] = valor;
+        const input = document.getElementById(ids[clave]);
+        if (input && (!soloSiVacio || !existente)) input.value = String(valor);
+    });
+}
+
+function prepararAuditoriaCampoRecuperada(datos) {
+    if (!datos || typeof datos !== 'object') throw new Error('La BBDD no devolvió una auditoría de Campo válida.');
+    const recuperada = JSON.parse(JSON.stringify(datos));
+    recuperada.id = String(recuperada.id || generarIdAuditoriaCampo());
+    recuperada.estado = recuperada.estado || 'FINALIZADA';
+    recuperada.datos = Object.assign({
+        fecha: '', horaInicio: '', auditor: '', auditorCargo: '', tipoPersonal: '', actividad: '',
+        actividadOtra: '', empresa: '', proyecto: '', trabajador: '', dniNie: '', obra: '', direccion: '',
+        cliente: '', trabajosRiesgoEspecial: '', localizacion: {tipo:'', poblacion:'', provincia:'', codigoPostal:'', latitud:null, longitud:null}
+    }, recuperada.datos || recuperada.datosGenerales || {});
+    recuperada.datos.localizacion = Object.assign({tipo:'', poblacion:'', provincia:'', codigoPostal:'', latitud:null, longitud:null}, recuperada.datos.localizacion || {});
+    recuperada.trabajadores = Array.isArray(recuperada.trabajadores) ? recuperada.trabajadores : [];
+    recuperada.comprobaciones = recuperada.comprobaciones && typeof recuperada.comprobaciones === 'object' ? recuperada.comprobaciones : {};
+    recuperada.incidencias = Array.isArray(recuperada.incidencias) ? recuperada.incidencias : [];
+    recuperada.fotografias = Array.isArray(recuperada.fotografias) ? recuperada.fotografias : [];
+    recuperada.firmas = Object.assign({auditor:'', trabajador:''}, recuperada.firmas || {});
+    recuperada.observaciones = recuperada.observaciones || '';
+    auditoriaCampo = recuperada;
+    inicializarAuditoriaCampo();
+    // La recuperación de un histórico no debe sobrescribir una auditoría de
+    // Vehículos/Equipos que ya esté en curso; solo completa campos vacíos.
+    sincronizarDatosCampoEnVehiculos(true);
+    actualizarDashboardCampo();
+}
+
 function instalarBotonMenuInicialVehiculos() {
     const dashboard = document.getElementById("dashboard");
     if (!dashboard || document.getElementById("btnMenuInicialVehiculos")) return;
@@ -12094,6 +12528,8 @@ function guardarDatosCampoDesdeFormulario() {
     auditoriaCampo.datos.localizacion.provincia = val("campoProvincia") || auditoriaCampo.datos.localizacion.provincia || "";
     auditoriaCampo.datos.localizacion.codigoPostal = val("campoCodigoPostal") || auditoriaCampo.datos.localizacion.codigoPostal || "";
     auditoriaCampo.estado = auditoriaCampo.estado === "FINALIZADA" ? "FINALIZADA" : "EN_CURSO";
+    // Guardado inmediato en memoria compartida: Campo -> Vehículos/Equipos.
+    sincronizarDatosCampoEnVehiculos(false);
     actualizarDashboardCampo();
 }
 
@@ -12242,11 +12678,20 @@ function renderModuloCampoChequeo() {
 
 function renderModuloCampoFotografias() {
     const fotos = auditoriaCampo.fotografias || [];
-    const slots = fotos.map((f,i)=>`<div class="campo-foto-card"><div class="campo-foto-head"><strong>Fotografía ${i+1}</strong><button type="button" class="btn-secondary" onclick="eliminarFotoCampo(${i})">Eliminar</button></div>${f.dataUrl?`<img src="${f.dataUrl}" alt="Fotografía ${i+1}">`:""}<input type="file" accept="image/*" capture="environment" onchange="cargarFotoCampo(event,${i})"><textarea placeholder="Descripción / ubicación / observación (opcional)" oninput="auditoriaCampo.fotografias[${i}].descripcion=this.value">${campoEsc(f.descripcion||"")}</textarea></div>`).join("");
-    return `<div class="card"><p>Se pueden incorporar varias fotografías de campo. En móvil el control puede abrir directamente la cámara.</p><button type="button" class="primary-button" onclick="agregarFotoCampo()">+ Añadir fotografía</button></div><div class="campo-fotos-grid">${slots || '<div class="card">No hay fotografías todavía.</div>'}</div>`;
+    const slots = fotos.map((f,i)=>`<div class="campo-foto-card"><div class="campo-foto-head"><strong>Fotografía ${i+1}</strong><button type="button" class="btn-secondary" onclick="eliminarFotoCampo(${i})">Eliminar</button></div>${f.dataUrl?`<img src="${f.dataUrl}" alt="Fotografía ${i+1}">`:""}<div class="inc-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0"><button type="button" class="btn-secondary" onclick="seleccionarFotoCampo(${i},false)">🖼️ Elegir imagen del dispositivo</button><button type="button" class="btn-secondary" onclick="seleccionarFotoCampo(${i},true)">📷 Abrir cámara</button></div><textarea placeholder="Descripción / ubicación / observación (opcional)" oninput="auditoriaCampo.fotografias[${i}].descripcion=this.value">${campoEsc(f.descripcion||"")}</textarea></div>`).join("");
+    return `<div class="card"><p>Para cada fotografía puedes elegir una imagen existente en el dispositivo o abrir la cámara para tomarla en el momento.</p><button type="button" class="primary-button" onclick="agregarFotoCampo()">+ Añadir fotografía</button></div><div class="campo-fotos-grid">${slots || '<div class="card">No hay fotografías todavía.</div>'}</div>`;
 }
 function agregarFotoCampo(){ auditoriaCampo.fotografias.push({dataUrl:"",descripcion:""}); abrirModuloCampo("fotografias"); }
 function eliminarFotoCampo(i){ auditoriaCampo.fotografias.splice(i,1); abrirModuloCampo("fotografias"); }
+function seleccionarFotoCampo(i,usarCamara){
+    if(!auditoriaCampo.fotografias[i])return;
+    seleccionarFotografiaEnMemoria(function(foto){
+        auditoriaCampo.fotografias[i].dataUrl=foto.dataUrl;
+        auditoriaCampo.fotografias[i].nombreArchivo=foto.nombreArchivo||"fotografia.jpg";
+        auditoriaCampo.fotografias[i].fecha=foto.fecha||new Date().toISOString();
+        abrirModuloCampo("fotografias");
+    }, usarCamara === true);
+}
 function cargarFotoCampo(ev,i){ const file=ev.target.files && ev.target.files[0]; if(!file)return; if(file.size>8*1024*1024){alert("La fotografía supera 8 MB.");return;} const reader=new FileReader(); reader.onload=()=>{auditoriaCampo.fotografias[i].dataUrl=reader.result; abrirModuloCampo("fotografias");}; reader.readAsDataURL(file); }
 
 function configurarFirmasCampo() {
@@ -12278,7 +12723,7 @@ function renderIncidenciasCampo(){
       ${lista.length?lista.map((inc,i)=>`<div class="incidencia-campo-item" style="border:1px solid #d5d5d5;border-radius:8px;padding:10px;margin:8px 0"><strong>${i+1}. ${campoEsc(inc.apartadoTexto||inc.apartado||"")}</strong><p style="white-space:pre-wrap">${campoEsc(inc.descripcion||"")}</p>${(inc.fotografias||[]).map((f,j)=>`<img src="${f.dataUrl}" alt="Foto incidencia ${i+1}" style="width:90px;height:70px;object-fit:cover;margin:3px;border-radius:4px">`).join("")}<div><button type="button" class="btn-secondary" onclick="eliminarIncidenciaCampo(${i})">Eliminar incidencia</button></div></div>`).join(""):'<p>No hay incidencias añadidas.</p>'}
       <h4>Añadir incidencia</h4><div class="field"><label for="incidenciaCampoApartado">Punto del chequeo de seguridad</label><select id="incidenciaCampoApartado"><option value="">Seleccionar apartado…</option>${opciones}</select></div>
       <div class="field"><label for="incidenciaCampoDescripcion">Descripción / comentarios</label><textarea id="incidenciaCampoDescripcion" rows="3" placeholder="Describe la incidencia detectada"></textarea></div>
-      <div class="field"><label for="incidenciaCampoFotos">Fotografías de la incidencia</label><input id="incidenciaCampoFotos" type="file" accept="image/*" capture="environment" multiple onchange="prepararFotosIncidenciaCampo(this)"><div id="previewFotosIncidenciaCampo" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div></div>
+      <div class="field"><label>Fotografías de la incidencia</label><div class="inc-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0"><label class="btn-secondary" style="display:inline-block;cursor:pointer">🖼️ Elegir imágenes del dispositivo<input id="incidenciaCampoFotos" type="file" accept="image/*" multiple style="display:none" onchange="prepararFotosIncidenciaCampo(this)"></label><label class="btn-secondary" style="display:inline-block;cursor:pointer">📷 Abrir cámara<input id="incidenciaCampoFotosCamara" type="file" accept="image/*" capture="environment" style="display:none" onchange="prepararFotosIncidenciaCampo(this)"></label></div><div id="previewFotosIncidenciaCampo" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div></div>
       <button type="button" class="btn-primary" onclick="anadirIncidenciaCampo()">Añadir incidencia</button></div>`;
 }
 let fotosPendientesIncidenciaCampo=[];
@@ -12320,9 +12765,10 @@ function actualizarDashboardCampo(){
 function renderModuloCampoResumen(){
     const chk=estadoChequeoCampo(), f1=!!auditoriaCampo.firmas.auditor, f2=!!auditoriaCampo.firmas.trabajador;
     const no=[...Object.entries(auditoriaCampo.comprobaciones).filter(([,v])=>v.resultado==="NO").map(([id])=>id)];
+    const finalizada = auditoriaCampo.estado === "FINALIZADA";
     return `<div class="card"><h3>${campoEsc(auditoriaCampo.id)}</h3><p><strong>Obra:</strong> ${campoEsc(auditoriaCampo.datos.obra)} · <strong>Cliente:</strong> ${campoEsc(auditoriaCampo.datos.cliente)} · <strong>Fecha:</strong> ${campoEsc(auditoriaCampo.datos.fecha)}</p><p><strong>Trabajadores:</strong> ${auditoriaCampo.trabajadores.length} · <strong>Chequeos:</strong> ${chk.completadas}/${chk.total} · <strong>Respuestas NO:</strong> ${no.length}</p></div>
-    <div class="card"><strong>Estado:</strong> ${campoEsc(auditoriaCampo.estado)}<br><small>Para finalizar deben estar respondidos todos los puntos SI/NO/NA y existir las dos firmas.</small></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" class="primary-button" onclick="finalizarAuditoriaCampo()">FINALIZAR AUDITORÍA DE CAMPO</button><button type="button" class="secondary-button" onclick="generarPdfAuditoriaCampoLocal()">GENERAR PDF DE PRUEBA</button>${auditoriaCampo.estado==="FINALIZADA"?`<button type="button" class="secondary-button" onclick="verPdfAuditoriaCampoLocal()">VER PDF</button>`:""}</div>`;
+    <div class="card"><strong>Estado:</strong> ${campoEsc(auditoriaCampo.estado)}<br><small>${finalizada ? "Auditoría finalizada y recuperada. Puede consultar los datos y generar una copia local del PDF." : "Para finalizar deben estar respondidos todos los puntos SI/NO/NA y existir las dos firmas."}</small></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">${finalizada ? `<button type="button" class="secondary-button" onclick="generarPdfAuditoriaCampoLocal()">DESCARGAR PDF</button><button type="button" class="secondary-button" onclick="verPdfAuditoriaCampoLocal()">VER PDF</button>` : `<button type="button" class="primary-button" onclick="finalizarAuditoriaCampo()">FINALIZAR AUDITORÍA DE CAMPO</button><button type="button" class="secondary-button" onclick="generarPdfAuditoriaCampoLocal()">GENERAR PDF DE PRUEBA</button>`}<button type="button" class="secondary-button" onclick="abrirDashboardEstadisticas()">VOLVER A ESTADÍSTICAS</button></div>`;
 }
 
 function normalizarEmpresaAuditoriaCampo(){
@@ -12335,6 +12781,18 @@ function normalizarEmpresaAuditoriaCampo(){
     // canónico antes de guardar la auditoría.
     if (empresa) d.idEmpresa = empresa;
     return empresa;
+}
+
+function descargarPdfAuditoriaCampo(blob, nombre) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nombre || ((auditoriaCampo && auditoriaCampo.id) || 'AUDITORIA_CAMPO') + '_Chequeo_Condiciones_Seguridad_ZENER.pdf';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 async function finalizarAuditoriaCampo(){
@@ -12365,22 +12823,33 @@ async function finalizarAuditoriaCampo(){
         return;
     }
 
+    let pdfCampoLocalDescargado = false;
+    let pdfCampoDriveGuardado = false;
+    let errorPdfCampoDrive = null;
     try {
-        const pdfCampo=await obtenerBlobPdfAuditoriaCampoLocal();
-        await guardarPdfEnDrive(pdfCampo.blob,auditoriaCampo.id,"CAMPO",(auditoriaCampo.id||"AUDITORIA_CAMPO")+"_Chequeo_Condiciones_Seguridad_ZENER.pdf");
-        const avisoFotos = erroresFotosCampo.length
-            ? " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
-            : " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
-        alert("Auditoría de campo guardada correctamente en la BBDD." + avisoFotos + " PDF enviado a Informes. ID: "+auditoriaCampo.id);
-    } catch(e) {
-        if(auditoriaGuardada){
-            const avisoFotos = erroresFotosCampo.length
-                ? "Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
-                : "Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
-            alert("La auditoría de campo ha quedado guardada correctamente en la BBDD. " + avisoFotos + "\nPero el PDF no pudo confirmarse en la carpeta Informes.\n\n"+(e.message||e)+"\n\nLa auditoría NO se ha perdido.");
-        } else {
-            alert("No se pudo completar la sincronización.\n\n"+(e.message||e));
+        const pdfCampo = await obtenerBlobPdfAuditoriaCampoLocal();
+        const nombrePdfCampo = (auditoriaCampo.id || "AUDITORIA_CAMPO") + "_Chequeo_Condiciones_Seguridad_ZENER.pdf";
+        // La descarga local no depende de que Drive responda correctamente.
+        descargarPdfAuditoriaCampo(pdfCampo.blob, nombrePdfCampo);
+        pdfCampoLocalDescargado = true;
+        try {
+            await guardarPdfEnDrive(pdfCampo.blob, auditoriaCampo.id, "CAMPO", nombrePdfCampo);
+            pdfCampoDriveGuardado = true;
+        } catch (eDrive) {
+            errorPdfCampoDrive = eDrive;
         }
+    } catch (ePdf) {
+        errorPdfCampoDrive = ePdf;
+    }
+    const avisoFotos = erroresFotosCampo.length
+        ? " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
+        : " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
+    if (auditoriaGuardada && pdfCampoLocalDescargado && pdfCampoDriveGuardado) {
+        alert("Auditoría de campo guardada en BBDD y hoja de auditorías. PDF descargado en local y guardado en Drive; su enlace queda registrado en la hoja de documentos. " + avisoFotos + " ID: " + auditoriaCampo.id);
+    } else if (auditoriaGuardada && pdfCampoLocalDescargado) {
+        alert("Auditoría de campo guardada en BBDD y PDF descargado en local. No se pudo confirmar el guardado del PDF en Drive/hoja de documentos. " + (errorPdfCampoDrive && (errorPdfCampoDrive.message || errorPdfCampoDrive) || "") + " " + avisoFotos + " ID: " + auditoriaCampo.id);
+    } else if (auditoriaGuardada) {
+        alert("La auditoría de campo quedó guardada en BBDD, pero no se pudo generar o descargar el PDF. " + (errorPdfCampoDrive && (errorPdfCampoDrive.message || errorPdfCampoDrive) || "") + " " + avisoFotos + " ID: " + auditoriaCampo.id);
     }
     abrirDashboardEstadisticas();
 }
@@ -12571,7 +13040,20 @@ async function abrirAuditoriaRecuperada(id) {
             throw new Error((data && data.error) || "La BBDD no devolvió la auditoría solicitada.");
         }
 
-        prepararAuditoriaRecuperada(data.auditoria);
+        const recuperada = data.auditoria;
+        const esCampo = String(recuperada.tipoAuditoria || recuperada.tipo || '').toUpperCase() === 'CAMPO'
+            || (recuperada.datos && recuperada.comprobaciones && /^AC-/i.test(String(recuperada.id || auditoriaId)));
+        if (esCampo) {
+            prepararAuditoriaCampoRecuperada(recuperada);
+            window._auditoriaRecuperada = true;
+            _recuperacionAuditoriaEnCurso = false;
+            try { actualizarDashboardCampo(); } catch (e) { console.warn("Dashboard Campo tras recuperación:", e); }
+            mostrarPantalla("dashboardCampo");
+            alert("Auditoría de Campo " + auditoriaId + " recuperada correctamente desde la BBDD.");
+            return true;
+        }
+
+        prepararAuditoriaRecuperada(recuperada);
         window._auditoriaRecuperada = true;
         _recuperacionAuditoriaEnCurso = false;
 
@@ -13091,8 +13573,8 @@ async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicio
         // Se añaden alternativas de recuperación por compatibilidad con auditorías
         // anteriores, sin sustituir un comentario real por el texto predeterminado.
         const comentariosCandidatos = [
-            revision && revision.comentarios,
             unidad && unidad.revisionFabricante && unidad.revisionFabricante.comentarios,
+            revision && revision.comentarios,
             campos && campos.comentarios,
             unidad && unidad.comentarios
         ];
@@ -13100,7 +13582,7 @@ async function generarDocumentoRevisionIrudekArnes(claveEpi, idUnidad, definicio
             comentariosCandidatos.find(v => v != null && String(v).trim() !== "") || ""
         ).trim();
         if (comentarios) {
-            observaciones.push(...comentarios.split(/\\r?\\n/).map(linea => linea.trim()).filter(Boolean));
+            observaciones.push(...comentarios.split(/\r?\n/).map(linea => linea.trim()).filter(Boolean));
         }
         controles.forEach((item) => {
             const c = mapa[item[0]] || {};

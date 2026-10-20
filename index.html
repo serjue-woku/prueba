@@ -10,6 +10,34 @@
 </head>
 
 <body>
+<div id="authGate" class="auth-gate" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+  <div class="auth-card">
+    <h2 id="authTitle">Acceso a Auditorías SPM</h2>
+    <p>Introduce tu usuario y contraseña para continuar.</p>
+    <form id="authLoginForm" autocomplete="on">
+      <label for="authUsername">Usuario</label>
+      <input id="authUsername" name="username" autocomplete="username" required maxlength="60">
+      <label for="authPassword">Contraseña</label>
+      <input id="authPassword" name="password" type="password" autocomplete="current-password" required maxlength="256">
+      <button id="authLoginButton" type="submit" class="primary-button">Iniciar sesión</button>
+      <p id="authMessage" class="auth-message" role="status" aria-live="polite"></p>
+    </form>
+</div>
+</div>
+<div id="appRoot" class="app-root" hidden>
+
+    <div class="auth-admin-wrapper">
+<section id="authAdminPanel" class="auth-admin-panel" hidden>
+      <h3>Administración de usuarios</h3>
+      <form id="authCreateUserForm">
+        <label for="authNewUsername">Nuevo usuario</label><input id="authNewUsername" required minlength="3" maxlength="60" autocomplete="off">
+        <label for="authNewPassword">Contraseña inicial (mínimo 12 caracteres)</label><input id="authNewPassword" type="password" required minlength="12" maxlength="256" autocomplete="new-password">
+        <button type="submit" class="secondary-button">Crear auditor</button>
+      </form>
+      <div class="auth-user-list"><h4>Usuarios registrados</h4><div id="authUsersList"></div></div>
+    </section>
+    </div>
+
 
 <header class="app-header">
     <div>
@@ -481,6 +509,7 @@
 
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script src="app.js"></script>
-
+<script src="auth.js"></script>
+</div><!-- /#appRoot -->
 </body>
 </html>

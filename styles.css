@@ -513,3 +513,31 @@ textarea:focus {
    V12.2 - GESTION DE INCIDENCIAS / EVIDENCIAS / EXPEDIENTE
    ========================================================= */
 .inc-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}.inc-kpi{background:#fff;border:1px solid #dfe4e8;border-radius:10px;padding:14px;text-align:center}.inc-kpi span{display:block;font-size:.85rem;color:#64748b}.inc-kpi strong{display:block;font-size:24px;margin-top:5px}.inc-filter-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}.inc-filter-grid label,.inc-detail-grid label{display:flex;flex-direction:column;gap:5px;font-weight:600;font-size:.9rem}.inc-table{min-width:1100px}.inc-table th,.inc-table td{padding:9px 8px;border-bottom:1px solid #e5e7eb;vertical-align:top;text-align:left}.inc-table th{background:#f3f5f7;white-space:nowrap}.inc-table tbody tr:hover{background:#f8fafc}.inc-small{font-size:.78rem;color:#64748b;margin-top:3px}.inc-badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#e5e7eb;font-size:.75rem;font-weight:700;white-space:nowrap}.inc-actions,.inc-header-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.inc-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}.inc-detail-grid>div{padding:10px;background:#f8fafc;border-radius:8px}.inc-detail-grid .full{grid-column:1/-1}.inc-evidence-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.inc-evidence-card{border:1px solid #dfe4e8;border-radius:10px;padding:10px;background:#fff}.inc-evidence-card img{display:block;width:100%;height:180px;object-fit:contain;background:#f3f5f7;border-radius:7px;margin-bottom:8px}.inc-evidence-icon{height:180px;display:flex;align-items:center;justify-content:center;font-size:55px;background:#f3f5f7;border-radius:7px;margin-bottom:8px}.inc-evidence-actions{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:8px}.danger-button{border:1px solid #dc2626;background:#fff;color:#b91c1c;border-radius:7px;padding:7px 10px;cursor:pointer;font-weight:600}.danger-button:hover{background:#fef2f2}.secondary-button{border:1px solid #cbd5df;background:#fff;color:#245183;border-radius:8px;padding:9px 13px;cursor:pointer}.secondary-button:hover{background:#f0f5fa}.table-responsive{overflow:auto}.stats-header-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}@media(max-width:800px){.inc-kpi-grid{grid-template-columns:repeat(2,1fr)}.inc-detail-grid{grid-template-columns:1fr}.inc-detail-grid .full{grid-column:auto}}@media(max-width:520px){.inc-kpi-grid{grid-template-columns:1fr}.inc-evidence-grid{grid-template-columns:1fr}.inc-evidence-card img,.inc-evidence-icon{height:210px}.inc-header-actions{width:100%}.inc-header-actions button{flex:1}}
+
+
+/* Acceso y administración de usuarios; estilos aislados del resto de módulos. */
+.auth-gate{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(15,23,42,.78);overflow:auto}
+.auth-gate[hidden],.app-root[hidden],[hidden]{display:none!important}
+.auth-card{width:min(100%,460px);max-height:calc(100vh - 40px);overflow:auto;background:#fff;border-radius:14px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.3);color:#172033}
+.auth-card h2{margin:0 0 8px}.auth-card p{color:#526174}.auth-card label{display:block;margin:14px 0 6px;font-weight:600}.auth-card input{box-sizing:border-box;width:100%;min-height:42px;border:1px solid #cbd5e1;border-radius:7px;padding:9px 11px;font:inherit}.auth-card button{margin-top:14px;min-height:40px}.auth-card form button{width:100%}.auth-message{min-height:1.2em;font-size:.92rem}.auth-message.error{color:#b91c1c}.auth-message.success{color:#166534}.auth-admin-panel{border-top:1px solid #dbe2ea;margin-top:24px;padding-top:18px}.auth-admin-panel h3{margin:0 0 10px}.auth-user-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #e2e8f0;padding:9px 0}.auth-user-row button{margin:0;width:auto}.auth-user-row small{display:block;color:#64748b}.auth-gate .secondary-button{border:1px solid #cbd5e1;background:#f8fafc;color:#172033;border-radius:6px;padding:8px 12px;cursor:pointer}.auth-gate .primary-button{background:#1457a6;color:#fff;border:0;border-radius:6px;padding:10px 14px;cursor:pointer}
+@media(max-width:480px){.auth-card{padding:20px}.auth-user-row{align-items:flex-start;flex-direction:column}.auth-user-row button{width:100%}}
+
+
+/* V39: panel de administración visible dentro de la aplicación tras autenticar ADMIN. */
+.auth-admin-wrapper { max-width: 1200px; margin: 18px auto 0; padding: 0 25px; }
+.auth-admin-panel { background: #fff; border: 1px solid #dbe2ea; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.auth-admin-panel h3 { margin: 0 0 8px; color: #17365d; }
+.auth-admin-panel h4 { margin: 18px 0 8px; }
+.auth-admin-panel label { display: block; margin: 12px 0 6px; font-weight: 600; font-size: 14px; }
+.auth-admin-panel input { box-sizing: border-box; width: 100%; max-width: 520px; min-height: 42px; border: 1px solid #cbd5e1; border-radius: 7px; padding: 9px 11px; font: inherit; }
+.auth-admin-panel button { min-height: 40px; margin-top: 12px; }
+.auth-admin-panel #authCreateUserForm { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto; gap: 10px 14px; align-items: end; }
+.auth-admin-panel #authCreateUserForm label { margin: 0 0 6px; }
+.auth-admin-panel #authCreateUserForm input { max-width: none; }
+.auth-admin-panel #authCreateUserForm button { margin: 0; white-space: nowrap; }
+.auth-admin-panel .auth-user-list { margin-top: 8px; }
+@media(max-width:700px) {
+  .auth-admin-wrapper { padding: 0 15px; }
+  .auth-admin-panel #authCreateUserForm { grid-template-columns: 1fr; }
+  .auth-admin-panel #authCreateUserForm button { width: 100%; }
+}
