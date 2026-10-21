@@ -17,7 +17,7 @@ async function appGasPost(payload) {
     const copia = Object.assign({}, payload || {});
     const esLogin = accion === "iniciarSesion";
     if (!esLogin) {
-        const token = sessionStorage.getItem("appAuditoriasSessionToken");
+        const token = localStorage.getItem("appAuditoriasSessionToken");
         if (!token) throw new Error("La sesión no está iniciada. Accede de nuevo a la aplicación.");
         copia.sessionToken = token;
     }
@@ -40,7 +40,7 @@ async function appGasPost(payload) {
     }
     if (!data.ok) {
         if (data.codigo === "SESION_CADUCADA" || data.codigo === "SESION_REQUERIDA" || data.codigo === "USUARIO_DESACTIVADO") {
-            sessionStorage.removeItem("appAuditoriasSessionToken");
+            localStorage.removeItem("appAuditoriasSessionToken");
             window.dispatchEvent(new CustomEvent("appAuditoriasSesionCaducada"));
         }
         throw new Error((data.error || "La BBDD devolvió un error.") + " [acción: " + accion + "]");
@@ -834,15 +834,9 @@ function generarIdAuditoria() {
         ).padStart(2, "0");
 
 
-    const aleatorio =
-        Math.floor(
-            Math.random() * 9000
-        ) + 1000;
-
-
-    return (
-        `AUD-${año}${mes}${dia}-${aleatorio}`
-    );
+    // Sufijo temporal + aleatorio para reducir colisiones entre auditorías creadas el mismo día.
+    const sufijo = Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 8).toUpperCase();
+    return `AUD-${año}${mes}${dia}-${sufijo}`;
 }
 
 
@@ -2846,6 +2840,7 @@ async function finalizarAuditoriaDesdeResumen() {
     auditoria.fechaFinalizacion = obtenerFechaActual();
     auditoria.horaFinalizacion = obtenerHoraActual();
     auditoria.finalizada = true;
+    await guardarBorradorLocal("VEHICULOS_EQUIPOS", false);
     actualizarDashboard(); renderizarResumenFinalizar();
     let auditoriaGuardada = false;
     let fotosGuardadas = 0;
@@ -2854,6 +2849,7 @@ async function finalizarAuditoriaDesdeResumen() {
     try {
         const sync = await guardarAuditoriaYFotografias("VEHICULOS_EQUIPOS", auditoria);
         auditoriaGuardada = true;
+        if (!(sync.erroresFotografias || []).length) await eliminarBorradorLocal("VEHICULOS_EQUIPOS", auditoria.id);
         fotosGuardadas = sync.fotografiasGuardadas;
         fotosTotales = sync.fotografiasTotales;
         erroresFotografias = sync.erroresFotografias || [];
@@ -11914,7 +11910,244 @@ function generarIdAuditoriaCampo() {
     const d = new Date();
     const p = n => String(n).padStart(2, "0");
     const base = `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`;
-    return `AC-${base}-${Math.floor(Math.random()*9000)+1000}`;
+    // El ID se conserva en el borrador local y se reutiliza en todos los reintentos de envío.
+    const sufijo = Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 8).toUpperCase();
+    return `AC-${base}-${sufijo}`;
+}
+
+
+/* =========================================================
+   V39.1 — BORRADORES LOCALES E IDEMPOTENCIA DE ENVÍO
+   Los borradores completos (incluidas fotos y firmas) se guardan en IndexedDB.
+   No se envían al backend hasta que el usuario finaliza la auditoría.
+   ========================================================= */
+const APP_DRAFT_DB_NAME = "APP_AUDITORIAS_V39_DRAFTS";
+const APP_DRAFT_DB_VERSION = 1;
+const APP_DRAFT_STORE = "borradores";
+const APP_DRAFT_KEYS = { VEHICULOS_EQUIPOS: "VEHICULOS_EQUIPOS", CAMPO: "CAMPO" };
+window._auditoriasConfirmadasLocal = window._auditoriasConfirmadasLocal || new Set();
+window._borradoresLocalesRecuperados = [];
+let _appDraftDbPromise = null;
+let _appDraftSaveTimer = null;
+let _appDraftAutosaveInstalled = false;
+
+function abrirBaseBorradoresLocal() {
+    if (_appDraftDbPromise) return _appDraftDbPromise;
+    _appDraftDbPromise = new Promise((resolve, reject) => {
+        if (!window.indexedDB) { reject(new Error("Este navegador no permite almacenamiento local IndexedDB.")); return; }
+        const req = indexedDB.open(APP_DRAFT_DB_NAME, APP_DRAFT_DB_VERSION);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(APP_DRAFT_STORE)) db.createObjectStore(APP_DRAFT_STORE, { keyPath: "key" });
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error || new Error("No se pudo abrir el almacenamiento local."));
+    });
+    return _appDraftDbPromise;
+}
+
+function copiarEstadoAuditoriaLocal(obj) {
+    return JSON.parse(JSON.stringify(obj));
+}
+
+function borradorTieneContenido(tipo, actual) {
+    if (!actual) return false;
+    if (tipo === "CAMPO") {
+        const d = actual.datos || {};
+        const campos = [d.auditor, d.auditorCargo, d.tipoPersonal, d.actividad, d.actividadOtra, d.empresa, d.proyecto, d.trabajador, d.dniNie, d.obra, d.direccion, d.cliente, d.trabajosRiesgoEspecial];
+        return campos.some(v => String(v || "").trim() !== "") ||
+            (actual.trabajadores || []).length > 0 || (actual.incidencias || []).length > 0 ||
+            (actual.fotografias || []).length > 0 || !!(actual.firmas && (actual.firmas.auditor || actual.firmas.trabajador)) ||
+            Object.values(actual.comprobaciones || {}).some(c => c && String(c.resultado || "").trim() !== "") ||
+            String(actual.estado || "") !== "BORRADOR";
+    }
+    const d = actual.datosGenerales || {};
+    const campos = [d.auditor, d.tipoPersonal, d.actividad, d.actividadOtra, d.empresa, d.proyecto, d.trabajador, d.dniNie];
+    function hayCambioNoPredeterminado(obj, clave) {
+        if (Array.isArray(obj)) return obj.some(x => hayCambioNoPredeterminado(x, clave));
+        if (!obj || typeof obj !== "object") return false;
+        return Object.keys(obj).some(k => {
+            const v = obj[k];
+            if (typeof v === "string") {
+                const t = v.trim().toUpperCase();
+                if (["dataUrl", "base64", "imagen"].includes(k) && /^DATA:IMAGE\//i.test(v)) return true;
+                if (["observaciones", "comentarios", "descripcion", "numeroSerie", "serie", "fechaRevision", "marca", "modelo"].includes(k) && t) return true;
+                if (["resultado", "veredicto"].includes(k) && t && !["CORRECTO", "CORRECTA", "APTO", "B", "SI"].includes(t)) return true;
+                if (k === "estado" && t && !["NO_INICIADO", "BORRADOR", ""].includes(t)) return true;
+            }
+            return hayCambioNoPredeterminado(v, k);
+        });
+    }
+    const modulosActivos = hayCambioNoPredeterminado(actual.modulos || {});
+    return campos.some(v => String(v || "").trim() !== "") || (actual.incidencias || []).length > 0 || (actual.fotografias || []).length > 0 ||
+        !!(actual.firmas && Object.values(actual.firmas).some(v => String(v || "").trim() !== "")) ||
+        modulosActivos || String(actual.estado || "") !== "BORRADOR";
+}
+
+function capturarFormularioActivoAntesDeGuardar() {
+    const activa = document.querySelector(".screen.active");
+    const idActiva = activa ? String(activa.id || "") : "";
+    try {
+        if (idActiva === "datosGenerales") guardarDatosGenerales();
+    } catch (_) {}
+    try {
+        const contenidoCampo = document.getElementById("contenidoModuloCampo");
+        if (idActiva === "moduloCampo" && contenidoCampo && contenidoCampo.querySelector("#campoFecha")) guardarDatosCampoDesdeFormulario();
+    } catch (_) {}
+}
+
+async function guardarBorradorLocal(tipo, mostrarError) {
+    const esCampo = tipo === "CAMPO";
+    const actual = esCampo ? auditoriaCampo : auditoria;
+    if (!actual || !actual.id) return false;
+    if (!borradorTieneContenido(tipo, actual)) return false;
+    const key = tipo;
+    if (window._auditoriasConfirmadasLocal.has(key + ":" + actual.id)) return false;
+    const registro = {
+        key,
+        id: String(actual.id),
+        tipo,
+        estado: String(actual.estado || "BORRADOR"),
+        actualizado: new Date().toISOString(),
+        datos: copiarEstadoAuditoriaLocal(actual)
+    };
+    try {
+        const db = await abrirBaseBorradoresLocal();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(APP_DRAFT_STORE, "readwrite");
+            tx.objectStore(APP_DRAFT_STORE).put(registro);
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error || new Error("No se pudo guardar el borrador local."));
+            tx.onabort = () => reject(tx.error || new Error("Se canceló el guardado local."));
+        });
+        return true;
+    } catch (e) {
+        // Fallback para navegadores sin IndexedDB. Puede tener menor capacidad para fotos grandes.
+        try {
+            localStorage.setItem("appAuditoriasDraftFallback:" + key, JSON.stringify(registro));
+            return true;
+        } catch (fallbackError) {
+            console.error("No se pudo guardar el borrador local", e, fallbackError);
+            if (mostrarError || !window._appDraftWarningShown) {
+                window._appDraftWarningShown = true;
+                alert("ATENCIÓN: no se ha podido guardar una copia local de la auditoría. No cierre el navegador hasta resolver el problema de almacenamiento. Compruebe el espacio disponible y los permisos del navegador.\n\n" + (fallbackError.message || fallbackError));
+            }
+            return false;
+        }
+    }
+}
+
+async function eliminarBorradorLocal(tipo, id) {
+    const key = tipo + ":" + String(id || "");
+    window._auditoriasConfirmadasLocal.add(key);
+    try {
+        const db = await abrirBaseBorradoresLocal();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction(APP_DRAFT_STORE, "readwrite");
+            tx.objectStore(APP_DRAFT_STORE).delete(tipo);
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error || new Error("No se pudo limpiar el borrador local."));
+        });
+    } catch (_) {}
+    try { localStorage.removeItem("appAuditoriasDraftFallback:" + tipo); } catch (_) {}
+}
+
+async function leerBorradorLocal(tipo) {
+    try {
+        const db = await abrirBaseBorradoresLocal();
+        const r = await new Promise((resolve, reject) => {
+            const tx = db.transaction(APP_DRAFT_STORE, "readonly");
+            const req = tx.objectStore(APP_DRAFT_STORE).get(tipo);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error || new Error("No se pudo leer el borrador local."));
+        });
+        if (r) return r;
+    } catch (_) {}
+    try {
+        const raw = localStorage.getItem("appAuditoriasDraftFallback:" + tipo);
+        return raw ? JSON.parse(raw) : null;
+    } catch (_) { return null; }
+}
+
+function aplicarDatosGeneralesVehiculoAlFormulario() {
+    const dg = (auditoria && auditoria.datosGenerales) || {};
+    const valores = {
+        idAuditoria: auditoria.id, fechaAuditoria: dg.fecha, horaInicio: dg.horaInicio,
+        auditor: dg.auditor, tipoPersonal: dg.tipoPersonal, actividad: dg.actividad,
+        actividadOtra: dg.actividadOtra, empresa: dg.empresa, proyecto: dg.proyecto,
+        trabajador: dg.trabajador, dniNieTrabajador: dg.dniNie
+    };
+    Object.keys(valores).forEach(id => { const el = document.getElementById(id); if (el && valores[id] != null) el.value = valores[id]; });
+    ["tipoPersonal", "actividad"].forEach(nombre => {
+        document.querySelectorAll('input[name="' + nombre + '"]').forEach(el => { el.checked = String(el.value || "") === String(dg[nombre] || ""); });
+    });
+    const loc = dg.localizacion || {};
+    const locVals = { direccion:loc.direccion, poblacion:loc.poblacion, provincia:loc.provincia, codigoPostal:loc.codigoPostal };
+    Object.keys(locVals).forEach(id => { const el=document.getElementById(id); if(el && locVals[id]!=null) el.value=locVals[id]; });
+    const head=document.getElementById("auditIdHeader"); if(head) head.textContent=auditoria.id;
+}
+
+async function restaurarBorradoresLocales() {
+    const v = await leerBorradorLocal(APP_DRAFT_KEYS.VEHICULOS_EQUIPOS);
+    const c = await leerBorradorLocal(APP_DRAFT_KEYS.CAMPO);
+    if (v && v.datos && v.id === String(v.datos.id || "")) {
+        Object.assign(auditoria, copiarEstadoAuditoriaLocal(v.datos));
+        auditoria.id = String(v.id);
+        aplicarDatosGeneralesVehiculoAlFormulario();
+        window._borradoresLocalesRecuperados.push("Vehículos y Equipos");
+    }
+    if (c && c.datos && c.id === String(c.datos.id || "")) {
+        auditoriaCampo = copiarEstadoAuditoriaLocal(c.datos);
+        inicializarAuditoriaCampo();
+        window._borradoresLocalesRecuperados.push("Campo");
+        // Reconstituye también los datos compartidos con Vehículos/Equipos tras una reapertura.
+        try { sincronizarDatosCampoEnVehiculos(true); } catch (_) {}
+        aplicarDatosGeneralesVehiculoAlFormulario();
+    }
+    return window._borradoresLocalesRecuperados.slice();
+}
+
+function tipoAuditoriaActivaParaBorrador() {
+    const root = document.getElementById("appRoot");
+    if (root && root.hidden) return "";
+    const activa = document.querySelector(".screen.active");
+    const id = activa ? String(activa.id || "") : "";
+    if (id === "dashboardCampo" || id === "moduloCampo") return "CAMPO";
+    if (["datosGenerales", "modulo", "dashboardVehiculos", "dashboardVE", "dashboard"].includes(id)) return "VEHICULOS_EQUIPOS";
+    return "";
+}
+
+function guardarBorradorActivoLocal() {
+    capturarFormularioActivoAntesDeGuardar();
+    const tipo = tipoAuditoriaActivaParaBorrador();
+    if (tipo) return guardarBorradorLocal(tipo, false);
+    return Promise.resolve(false);
+}
+
+function programarGuardadoBorradoresLocales(tipoDetectado) {
+    if (_appDraftSaveTimer) clearTimeout(_appDraftSaveTimer);
+    const tipoObjetivo = tipoDetectado || tipoAuditoriaActivaParaBorrador();
+    _appDraftSaveTimer = setTimeout(() => {
+        capturarFormularioActivoAntesDeGuardar();
+        if (tipoObjetivo) guardarBorradorLocal(tipoObjetivo, false);
+    }, 400);
+}
+
+function instalarAutoguardadoLocal() {
+    if (_appDraftAutosaveInstalled) return;
+    _appDraftAutosaveInstalled = true;
+    ["input", "change", "click", "pointerup", "keyup"].forEach(eventName => {
+        document.addEventListener(eventName, () => {
+            const tipo = tipoAuditoriaActivaParaBorrador();
+            // Captura el formulario antes de que un botón de navegación cambie de pantalla.
+            if (["input", "change", "click"].includes(eventName)) capturarFormularioActivoAntesDeGuardar();
+            programarGuardadoBorradoresLocales(tipo);
+        }, true);
+    });
+    window.addEventListener("pagehide", () => {
+        // El guardado normal es asíncrono; pagehide intenta adelantar el último estado activo.
+        guardarBorradorActivoLocal();
+    });
 }
 
 function inicializarAuditoriaCampo() {
@@ -12807,7 +13040,7 @@ async function finalizarAuditoriaCampo(){
     if(!auditoriaCampo.datos.fecha){alert("Debe indicar la fecha.");return;}
     if(!chk.completo){alert(`Faltan comprobaciones por responder: ${chk.total-chk.completadas}.`);return;}
     if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
-    auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen");
+    auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); await guardarBorradorLocal("CAMPO", false); actualizarDashboardCampo(); abrirModuloCampo("resumen");
     let auditoriaGuardada = false;
     let fotosCampoGuardadas = 0;
     let fotosCampoTotales = 0;
@@ -12815,6 +13048,7 @@ async function finalizarAuditoriaCampo(){
     try {
         const syncCampo = await guardarAuditoriaYFotografias("CAMPO", auditoriaCampo);
         auditoriaGuardada = true;
+        if (!(syncCampo.erroresFotografias || []).length) await eliminarBorradorLocal("CAMPO", auditoriaCampo.id);
         fotosCampoGuardadas = syncCampo.fotografiasGuardadas;
         fotosCampoTotales = syncCampo.fotografiasTotales;
         erroresFotosCampo = syncCampo.erroresFotografias || [];
@@ -12946,10 +13180,16 @@ function crearPdfAuditoriaCampoLocal(){
 }
 
 (function inicializarSegundoDashboard(){
-    const init=()=>{
+    const init=async()=>{
+        instalarAutoguardadoLocal();
+        try { await restaurarBorradoresLocales(); } catch(e) { console.warn("No se pudieron recuperar todos los borradores locales", e); }
         instalarDashboardAuditoriasIndependientes();
         // Al entrar en la aplicación se muestra primero el selector de los dos tipos.
         mostrarPantalla("auditoriasInicio");
+        if (window._borradoresLocalesRecuperados.length) {
+            const lista = window._borradoresLocalesRecuperados.join(" y ");
+            setTimeout(() => alert("Se han recuperado borradores guardados en este navegador: " + lista + ". Puede continuar trabajando; no se han enviado todavía al backend."), 300);
+        }
     };
     if(document.readyState === "loading") document.addEventListener("DOMContentLoaded",init,{once:true}); else init();
 })();
