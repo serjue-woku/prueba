@@ -57,8 +57,8 @@ function prepararAuditoriaParaSincronizacion(auditoria) {
     const fotos = [];
     let contador = 0;
 
-    function clonar(valor, contexto) {
-        if (Array.isArray(valor)) return valor.map(v => clonar(v, contexto));
+    function clonar(valor, contexto, ruta) {
+        if (Array.isArray(valor)) return valor.map((v, i) => clonar(v, contexto, `${ruta}[${i}]`));
         if (!valor || typeof valor !== "object") return valor;
 
         const contextoLocal = {
@@ -66,26 +66,32 @@ function prepararAuditoriaParaSincronizacion(auditoria) {
             incidenciaId: String(valor.incidenciaId || contexto.incidenciaId || "")
         };
         const out = {};
-
         Object.keys(valor).forEach(k => {
             const v = valor[k];
-            if ((k === "dataUrl" || k === "base64" || k === "imagen") && typeof v === "string" && /^data:image\//i.test(v)) {
+            const rutaPropiedad = ruta ? `${ruta}.${k}` : k;
+            const esFirma = /(^|\.)firmas\.(auditor|trabajador)$/i.test(rutaPropiedad);
+            if (typeof v === "string" && /^data:image\//i.test(v) && (esFirma || ["dataUrl", "base64", "imagen"].includes(k))) {
                 contador++;
                 fotos.push({
                     dataUrl: v,
-                    modulo: contextoLocal.modulo,
-                    incidenciaId: contextoLocal.incidenciaId,
+                    modulo: esFirma ? "FIRMAS" : contextoLocal.modulo,
+                    incidenciaId: esFirma ? `SIGNATURE:${rutaPropiedad.split('.').pop()}` : contextoLocal.incidenciaId,
                     indice: contador,
-                    nombreSugerido: valor.nombre || valor.nombreArchivo || ""
+                    nombreSugerido: esFirma ? `firma_${rutaPropiedad.split('.').pop()}.png` : (valor.nombre || valor.nombreArchivo || ""),
+                    ruta: esFirma ? rutaPropiedad : ruta,
+                    clase: esFirma ? "FIRMA" : "FOTOGRAFIA"
                 });
+                if (esFirma) out[k] = "";
+                // Para fotografías, el objeto contenedor se conserva y el dataUrl
+                // se recupera posteriormente desde Drive mediante la ruta registrada.
                 return;
             }
-            out[k] = clonar(v, contextoLocal);
+            out[k] = clonar(v, contextoLocal, rutaPropiedad);
         });
         return out;
     }
 
-    const auditoriaLimpia = clonar(auditoria, {modulo:"GENERAL", incidenciaId:""});
+    const auditoriaLimpia = clonar(auditoria, {modulo:"GENERAL", incidenciaId:""}, "");
     return { auditoria: auditoriaLimpia, fotografias: fotos };
 }
 
@@ -104,6 +110,8 @@ async function sincronizarFotografiasAuditoria(auditoriaId, tipo, fotografias) {
                 incidenciaId: f.incidenciaId || "",
                 indice: f.indice || (i + 1),
                 nombreSugerido: f.nombreSugerido || "",
+                ruta: f.ruta || "",
+                clase: f.clase || "FOTOGRAFIA",
                 dataUrl: f.dataUrl
             });
             guardadas++;
@@ -147,6 +155,8 @@ async function guardarAuditoriaYFotografias(tipo, auditoria) {
                 incidenciaId: f.incidenciaId || "",
                 indice: f.indice || (i + 1),
                 nombreSugerido: f.nombreSugerido || "",
+                ruta: f.ruta || "",
+                clase: f.clase || "FOTOGRAFIA",
                 dataUrl: f.dataUrl
             });
             fotografiasGuardadas++;
@@ -296,7 +306,7 @@ function renderTablasEstadisticas() {
 
     const empresaRows = empresas.map(x => `<tr><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td><td class="stats-num">${Number(x.trabajadores || 0)}</td><td class="stats-date">${escStats(x.ultima || "")}</td></tr>`).join("") || `<tr><td colspan="6" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
     const provRows = provincias.map(x => `<tr><td class="stats-text">${escStats(x.provincia)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td></tr>`).join("") || `<tr><td colspan="4" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
-    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td><td><button type="button" class="secondary-button" onclick="abrirAuditoriaRecuperada('${String(x.id||'').replace(/'/g,"\'")}')">📂 Abrir</button></td></tr>`).join("") || `<tr><td colspan="12" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
+    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td><td><div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="secondary-button" onclick="abrirAuditoriaRecuperada('${String(x.id||'').replace(/'/g,"\'")}')">📂 Abrir</button><button type="button" class="secondary-button" onclick="recuperarPdfAuditoria('${String(x.id||'').replace(/'/g,"\'")}','${String(x.tipo||'').replace(/'/g,"\'")}')">📄 PDF</button></div></td></tr>`).join("") || `<tr><td colspan="12" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
     const idsFiltrados=new Set(detalle.map(x=>String(x.id)));
     const globalIncumplimientos=Array.isArray((_estadisticasActuales||{}).incumplimientos)?_estadisticasActuales.incumplimientos:[];
     const incumplimientos=globalIncumplimientos.length
@@ -321,6 +331,30 @@ function renderTablasEstadisticas() {
         <div class="stats-section-title"><div><h3>Detalle de incumplimientos por auditoría</h3><small>${incumplimientos.length} incumplimientos mostrados</small></div></div>
         <div class="table-responsive stats-table-wrap"><table class="stats-table stats-detail-table"><thead><tr><th>ID auditoría</th><th>Fecha</th><th>Proyecto</th><th>Empresa</th><th>Módulo</th><th>Apartado</th><th>Control</th><th>Incumplimiento</th><th>Estado</th><th>Responsable</th><th>Fecha prevista</th><th>Fecha cierre</th><th>Evidencias</th></tr></thead><tbody>${incumRows}</tbody></table></div>
       </div>`;
+}
+
+async function recuperarPdfAuditoria(id, tipo) {
+    const auditoriaId = String(id || "").trim();
+    if (!auditoriaId) { alert("No se ha indicado el ID de la auditoría."); return false; }
+    // Abrir una pestaña durante el gesto del usuario evita que el navegador
+    // bloquee la navegación después de la consulta asíncrona.
+    let ventana = null;
+    try { ventana = window.open("about:blank", "_blank"); } catch (_) {}
+    try {
+        const resultado = await appGasGet({accion:"verificarInformePdf", auditoriaId, tipo: String(tipo || "")});
+        if (!resultado || !resultado.encontrado || !resultado.url) {
+            if (ventana && !ventana.closed) ventana.close();
+            alert("No se ha encontrado un PDF registrado para la auditoría " + auditoriaId + (tipo ? " (" + tipo + ")" : "") + ".");
+            return false;
+        }
+        if (ventana && !ventana.closed) ventana.location.href = resultado.url;
+        else window.location.href = resultado.url;
+        return true;
+    } catch (e) {
+        if (ventana && !ventana.closed) ventana.close();
+        alert("No se pudo recuperar el PDF de la auditoría " + auditoriaId + ".\n\n" + (e.message || e));
+        return false;
+    }
 }
 
 function exportarEstadisticasExcel() {
@@ -13256,6 +13290,64 @@ function volverMenuPrincipalSeguro() {
     }
 }
 
+function establecerValorPorRuta(obj, ruta, valor) {
+    if (!obj || !ruta) return false;
+    const partes = String(ruta).replace(/\[(\d+)\]/g, ".$1").split(".").filter(Boolean);
+    let actual = obj;
+    for (let i = 0; i < partes.length - 1; i++) {
+        if (actual == null) return false;
+        actual = actual[partes[i]];
+    }
+    if (!actual || typeof actual !== "object") return false;
+    actual[partes[partes.length - 1]] = valor;
+    return true;
+}
+
+function asignarFotoHistoricaPorOrden(obj, fotos, indiceRef, nombreArray) {
+    if (!obj || typeof obj !== "object") return;
+    if (Array.isArray(obj)) {
+        obj.forEach(item => {
+            if (item && typeof item === "object" && /foto|imagen/i.test(nombreArray || "") && !item.dataUrl && indiceRef.i < fotos.length) {
+                item.dataUrl = fotos[indiceRef.i++].dataUrl;
+            } else asignarFotoHistoricaPorOrden(item, fotos, indiceRef, nombreArray);
+        });
+        return;
+    }
+    Object.keys(obj).forEach(k => {
+        if (k === "dataUrl" || k === "base64" || k === "imagen") return;
+        if (obj[k] && typeof obj[k] === "object") asignarFotoHistoricaPorOrden(obj[k], fotos, indiceRef, k);
+    });
+}
+
+async function rehidratarFotografiasAuditoriaRecuperada(recuperada) {
+    if (!recuperada || !recuperada.id) return {recuperadas:0, errores:0};
+    let listado;
+    try { listado = await appGasGet({accion:"obtenerFotografiasAuditoria", auditoriaId:String(recuperada.id)}); }
+    catch (e) { console.warn("No se pudieron consultar las fotografías de la auditoría:", e); return {recuperadas:0, errores:1}; }
+    const registros = Array.isArray(listado.fotografias) ? listado.fotografias : [];
+    if (!registros.length) return {recuperadas:0, errores:0};
+    const cargadas = [];
+    let errores = 0;
+    // Descarga secuencial para evitar saturar Apps Script y el navegador con
+    // varias imágenes grandes en paralelo.
+    for (const reg of registros) {
+        try {
+            const foto = await appGasGet({accion:"obtenerFotografiaAuditoria", auditoriaId:String(recuperada.id), fileId:String(reg.fileId || "")});
+            if (foto && foto.dataUrl) cargadas.push(Object.assign({}, reg, {dataUrl:foto.dataUrl}));
+            else errores++;
+        } catch (e) { errores++; console.warn("No se pudo recuperar una fotografía:", reg.nombre, e); }
+    }
+    const conRuta = cargadas.filter(f => f.ruta);
+    conRuta.forEach(f => {
+        if (!establecerValorPorRuta(recuperada, f.ruta, f.dataUrl)) console.warn("Ruta de fotografía no localizada en la auditoría:", f.ruta);
+    });
+    // Compatibilidad con registros anteriores que no almacenaban la ruta del
+    // campo. Se recuperan en el orden original de guardado, solo en arrays de fotos.
+    const sinRuta = cargadas.filter(f => !f.ruta && f.clase !== "FIRMA");
+    if (sinRuta.length) asignarFotoHistoricaPorOrden(recuperada, sinRuta, {i:0}, "");
+    return {recuperadas:cargadas.length, errores};
+}
+
 async function abrirAuditoriaRecuperada(id) {
     const auditoriaId = String(id || "").trim();
     if (!auditoriaId) {
@@ -13281,6 +13373,7 @@ async function abrirAuditoriaRecuperada(id) {
         }
 
         const recuperada = data.auditoria;
+        const resultadoFotos = await rehidratarFotografiasAuditoriaRecuperada(recuperada);
         const esCampo = String(recuperada.tipoAuditoria || recuperada.tipo || '').toUpperCase() === 'CAMPO'
             || (recuperada.datos && recuperada.comprobaciones && /^AC-/i.test(String(recuperada.id || auditoriaId)));
         if (esCampo) {
@@ -13289,7 +13382,7 @@ async function abrirAuditoriaRecuperada(id) {
             _recuperacionAuditoriaEnCurso = false;
             try { actualizarDashboardCampo(); } catch (e) { console.warn("Dashboard Campo tras recuperación:", e); }
             mostrarPantalla("dashboardCampo");
-            alert("Auditoría de Campo " + auditoriaId + " recuperada correctamente desde la BBDD.");
+            alert("Auditoría de Campo " + auditoriaId + " recuperada correctamente desde la BBDD. Fotografías y firmas recuperadas: " + resultadoFotos.recuperadas + (resultadoFotos.errores ? "; errores al recuperar: " + resultadoFotos.errores : "") + ".");
             return true;
         }
 
@@ -13300,7 +13393,7 @@ async function abrirAuditoriaRecuperada(id) {
         try { actualizarDashboard(); } catch (e) { console.warn("Dashboard tras recuperación:", e); }
         try { instalarBotonMenuInicialVehiculos(); } catch (e) { console.warn("Botón menú inicial tras recuperación:", e); }
         mostrarPantalla("dashboard");
-        alert("Auditoría " + auditoriaId + " recuperada correctamente desde la BBDD.");
+        alert("Auditoría " + auditoriaId + " recuperada correctamente desde la BBDD. Fotografías y firmas recuperadas: " + resultadoFotos.recuperadas + (resultadoFotos.errores ? "; errores al recuperar: " + resultadoFotos.errores : "") + ".");
         return true;
     } catch (e) {
         console.error("Error recuperando auditoría:", e);
