@@ -12943,15 +12943,16 @@ async function generarDocumentoRevisionClimaxArnesOficial(claveEpi, idUnidad, de
             doc.text(lines,x,y,{baseline:"top",lineHeightFactor:1.05});
         };
         const dato=(...keys)=>{for(const k of keys){if(campos[k]!==undefined&&campos[k]!==null&&campos[k]!=="")return campos[k];}return "";};
+        const fechaVisible=v=>{const raw=clean(v);if(!raw)return "";const m=raw.match(/^(\d{4})-(\d{2})-(\d{2})/);return m?m[3]+"/"+m[2]+"/"+m[1]:raw;};
         const datosGenerales=auditoria.datosGenerales||{};
         // Página 1: ficha identificativa, comentarios y fecha/firma de revisión.
         addFondo(0);
         txt(dato("articulo")||definicion.nombre||"Arnés anticaídas",46,95,71,7,true);
         txt(dato("referencia","modelo")||"",159,95,44,7);
-        txt(datosGenerales.trabajador||datosGenerales.nombreTrabajador||"",47,103,145,7);
-        txt(dato("fechaCompra")||"",48,112,65,7);
-        txt(dato("fechaPuestaServicio","fechaPuestaEnServicio")||"",143,112,48,7);
-        txt(dato("anioFabricacion","añoFabricacion","fechaFabricacion")||"",48,119,145,7);
+        txt(datosGenerales.empresa||datosGenerales.nombreEmpresa||datosGenerales.empresaTrabajador||"",47,103,145,7);
+        txt(fechaVisible(dato("fechaCompra")),48,112,65,7);
+        txt(fechaVisible(dato("fechaPrimerUso","fechaPuestaServicio","fechaPuestaEnServicio")),143,112,48,7);
+        txt(fechaVisible(dato("anioFabricacion","añoFabricacion","fechaFabricacion")),48,119,145,7);
         txt(dato("numeroLote","lote")||"",48,127,145,7);
         // Apto Sí/No, posiciones de la plantilla original.
         doc.setFont(fuentes,"bold");doc.setFontSize(10);
@@ -12959,8 +12960,10 @@ async function generarDocumentoRevisionClimaxArnesOficial(claveEpi, idUnidad, de
         doc.text(apto==="APTO"||apto==="CORRECTO"?"X":"",56,135);
         doc.text(apto==="NO APTO"||apto==="NO_APTO"||apto==="INCORRECTO"?"X":"",72,135);
         txt(revision.comentarios||unidad.observaciones||"",47,151,145,6.5);
-        txt(revision.fechaRevision||obtenerFechaActual(),16,239,48,7);
-        txt(revision.fechaProximaRevision||calcularProximaRevisionClimax(revision.fechaRevision||obtenerFechaActual()),83,239,48,7);
+        const fechaRevisionDoc=revision.fechaRevision||obtenerFechaActual();
+        const fechaProximaDoc=calcularProximaRevisionClimax(fechaRevisionDoc);
+        txt(fechaVisible(fechaRevisionDoc),16,239,48,7);
+        txt(fechaVisible(fechaProximaDoc),83,239,48,7);
         txt(revision.verificadoPor||datosGenerales.auditor||"",148,239,50,7);
         // Si hay una firma del responsable almacenada como imagen, superponerla en su celda.
         const firma=revision.firmaResponsable||revision.firmaAuditor||datosGenerales.firmaAuditor||datosGenerales.firma;
@@ -12968,6 +12971,7 @@ async function generarDocumentoRevisionClimaxArnesOficial(claveEpi, idUnidad, de
             try{doc.addImage(firma, firma.includes("image/png")?"PNG":"JPEG",145,244,48,18,"CLIMAX_FIRMA_RESPONSABLE","FAST");}catch(_){}
         }
         // Página 2: controles del tejido, piezas mecánicas, anillas y mosquetones.
+        doc.addPage("a4","p");
         addFondo(1);
         const controles=config.controles||[], mapa=revision.controles||{};
         const rowsP2=[
@@ -12977,15 +12981,15 @@ async function generarDocumentoRevisionClimaxArnesOficial(claveEpi, idUnidad, de
           [25,590],[25,613],[25,636],[25,659],[25,682],[25,705]
         ];
         // Coordenadas en mm adaptadas a la hoja oficial A4. Cada fila se enlaza al control en su orden documental.
-        const rowsP2mm=[29.0,35.5,42.0,48.4,54.7,61.0,67.3,73.6,79.8,86.2,92.4,104.7,111.0,117.4,123.6,136.2,142.5,148.8,155.1,167.6,174.0,180.3,186.5,192.8,199.1];
-        const rowsP3mm=[29.0,35.5,42.0,48.4,54.7,61.0,73.6,79.8,86.2,92.4,98.7];
+        const rowsP2mm=[35.3,41.8,48.3,54.7,61.0,67.3,73.6,79.9,86.1,92.5,98.7,111.0,117.3,123.7,129.9,142.5,148.8,155.1,161.4,173.9,180.3,186.6,192.8,199.1,205.4];
+        const rowsP3mm=[35.3,41.8,48.3,54.7,61.0,67.3,79.9,86.1,92.5,98.7,105.0];
         const markControl=(item,y)=>{
             const c=mapa[item[0]]||{};
             const val=String(c.resultado||"").toUpperCase();
             let x=null;
-            if(val==="SI"||val==="SÍ"||val==="INCORRECTO"||val==="NO_APTO")x=88.7;
-            else if(val==="NO"||val==="CORRECTO"||val==="APTO")x=97.0;
-            else if(val==="NP"||val==="N/A"||val==="NO_APLICA")x=105.5;
+            if(val==="SI"||val==="SÍ"||val==="INCORRECTO"||val==="NO_APTO")x=90.0;
+            else if(val==="NO"||val==="CORRECTO"||val==="APTO")x=100.0;
+            else if(val==="NP"||val==="N/A"||val==="NO_APLICA")x=110.0;
             if(x!==null){doc.setFont(fuentes,"bold");doc.setFontSize(7);doc.text("X",x,y);}
             txt(c.observaciones||"",113,y-1,91,5.3);
         };
