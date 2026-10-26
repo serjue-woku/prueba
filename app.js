@@ -17,7 +17,7 @@ async function appGasPost(payload) {
     const copia = Object.assign({}, payload || {});
     const esLogin = accion === "iniciarSesion";
     if (!esLogin) {
-        const token = localStorage.getItem("appAuditoriasSessionToken");
+        const token = sessionStorage.getItem("appAuditoriasSessionToken");
         if (!token) throw new Error("La sesión no está iniciada. Accede de nuevo a la aplicación.");
         copia.sessionToken = token;
     }
@@ -40,7 +40,7 @@ async function appGasPost(payload) {
     }
     if (!data.ok) {
         if (data.codigo === "SESION_CADUCADA" || data.codigo === "SESION_REQUERIDA" || data.codigo === "USUARIO_DESACTIVADO") {
-            localStorage.removeItem("appAuditoriasSessionToken");
+            sessionStorage.removeItem("appAuditoriasSessionToken");
             window.dispatchEvent(new CustomEvent("appAuditoriasSesionCaducada"));
         }
         throw new Error((data.error || "La BBDD devolvió un error.") + " [acción: " + accion + "]");
@@ -57,8 +57,8 @@ function prepararAuditoriaParaSincronizacion(auditoria) {
     const fotos = [];
     let contador = 0;
 
-    function clonar(valor, contexto, ruta) {
-        if (Array.isArray(valor)) return valor.map((v, i) => clonar(v, contexto, `${ruta}[${i}]`));
+    function clonar(valor, contexto) {
+        if (Array.isArray(valor)) return valor.map(v => clonar(v, contexto));
         if (!valor || typeof valor !== "object") return valor;
 
         const contextoLocal = {
@@ -66,32 +66,26 @@ function prepararAuditoriaParaSincronizacion(auditoria) {
             incidenciaId: String(valor.incidenciaId || contexto.incidenciaId || "")
         };
         const out = {};
+
         Object.keys(valor).forEach(k => {
             const v = valor[k];
-            const rutaPropiedad = ruta ? `${ruta}.${k}` : k;
-            const esFirma = /(^|\.)firmas\.(auditor|trabajador)$/i.test(rutaPropiedad);
-            if (typeof v === "string" && /^data:image\//i.test(v) && (esFirma || ["dataUrl", "base64", "imagen"].includes(k))) {
+            if ((k === "dataUrl" || k === "base64" || k === "imagen") && typeof v === "string" && /^data:image\//i.test(v)) {
                 contador++;
                 fotos.push({
                     dataUrl: v,
-                    modulo: esFirma ? "FIRMAS" : contextoLocal.modulo,
-                    incidenciaId: esFirma ? `SIGNATURE:${rutaPropiedad.split('.').pop()}` : contextoLocal.incidenciaId,
+                    modulo: contextoLocal.modulo,
+                    incidenciaId: contextoLocal.incidenciaId,
                     indice: contador,
-                    nombreSugerido: esFirma ? `firma_${rutaPropiedad.split('.').pop()}.png` : (valor.nombre || valor.nombreArchivo || ""),
-                    ruta: esFirma ? rutaPropiedad : ruta,
-                    clase: esFirma ? "FIRMA" : "FOTOGRAFIA"
+                    nombreSugerido: valor.nombre || valor.nombreArchivo || ""
                 });
-                if (esFirma) out[k] = "";
-                // Para fotografías, el objeto contenedor se conserva y el dataUrl
-                // se recupera posteriormente desde Drive mediante la ruta registrada.
                 return;
             }
-            out[k] = clonar(v, contextoLocal, rutaPropiedad);
+            out[k] = clonar(v, contextoLocal);
         });
         return out;
     }
 
-    const auditoriaLimpia = clonar(auditoria, {modulo:"GENERAL", incidenciaId:""}, "");
+    const auditoriaLimpia = clonar(auditoria, {modulo:"GENERAL", incidenciaId:""});
     return { auditoria: auditoriaLimpia, fotografias: fotos };
 }
 
@@ -110,8 +104,6 @@ async function sincronizarFotografiasAuditoria(auditoriaId, tipo, fotografias) {
                 incidenciaId: f.incidenciaId || "",
                 indice: f.indice || (i + 1),
                 nombreSugerido: f.nombreSugerido || "",
-                ruta: f.ruta || "",
-                clase: f.clase || "FOTOGRAFIA",
                 dataUrl: f.dataUrl
             });
             guardadas++;
@@ -155,8 +147,6 @@ async function guardarAuditoriaYFotografias(tipo, auditoria) {
                 incidenciaId: f.incidenciaId || "",
                 indice: f.indice || (i + 1),
                 nombreSugerido: f.nombreSugerido || "",
-                ruta: f.ruta || "",
-                clase: f.clase || "FOTOGRAFIA",
                 dataUrl: f.dataUrl
             });
             fotografiasGuardadas++;
@@ -306,7 +296,7 @@ function renderTablasEstadisticas() {
 
     const empresaRows = empresas.map(x => `<tr><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td><td class="stats-num">${Number(x.trabajadores || 0)}</td><td class="stats-date">${escStats(x.ultima || "")}</td></tr>`).join("") || `<tr><td colspan="6" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
     const provRows = provincias.map(x => `<tr><td class="stats-text">${escStats(x.provincia)}</td><td class="stats-num">${Number(x.auditorias || 0)}</td><td class="stats-num">${Number(x.correctas || 0)}</td><td class="stats-num">${Number(x.conIncidencias || 0)}</td></tr>`).join("") || `<tr><td colspan="4" class="stats-empty">No hay datos para los filtros seleccionados.</td></tr>`;
-    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td><td><div style="display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="secondary-button" onclick="abrirAuditoriaRecuperada('${String(x.id||'').replace(/'/g,"\'")}')">📂 Abrir</button><button type="button" class="secondary-button" onclick="recuperarPdfAuditoria('${String(x.id||'').replace(/'/g,"\'")}','${String(x.tipo||'').replace(/'/g,"\'")}')">📄 PDF</button></div></td></tr>`).join("") || `<tr><td colspan="12" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
+    const detalleRows = detalle.map(x => `<tr><td class="stats-text">${escStats(x.id)}</td><td class="stats-date">${escStats(x.fecha)}</td><td>${escStats(x.tipo)}</td><td class="stats-text">${escStats(x.auditor)}</td><td class="stats-text">${escStats(x.empresa)}</td><td class="stats-text">${escStats(x.proyecto)}</td><td class="stats-text">${escStats(x.trabajador)}</td><td class="stats-text">${escStats(x.dni)}</td><td>${escStats(x.estado)}</td><td class="stats-num">${Number(x.incidencias || 0)}</td><td class="stats-text">${escStats(x.provincia)}</td><td><button type="button" class="secondary-button" onclick="abrirAuditoriaRecuperada('${String(x.id||'').replace(/'/g,"\'")}')">📂 Abrir</button></td></tr>`).join("") || `<tr><td colspan="12" class="stats-empty">No hay auditorías para los filtros seleccionados.</td></tr>`;
     const idsFiltrados=new Set(detalle.map(x=>String(x.id)));
     const globalIncumplimientos=Array.isArray((_estadisticasActuales||{}).incumplimientos)?_estadisticasActuales.incumplimientos:[];
     const incumplimientos=globalIncumplimientos.length
@@ -331,30 +321,6 @@ function renderTablasEstadisticas() {
         <div class="stats-section-title"><div><h3>Detalle de incumplimientos por auditoría</h3><small>${incumplimientos.length} incumplimientos mostrados</small></div></div>
         <div class="table-responsive stats-table-wrap"><table class="stats-table stats-detail-table"><thead><tr><th>ID auditoría</th><th>Fecha</th><th>Proyecto</th><th>Empresa</th><th>Módulo</th><th>Apartado</th><th>Control</th><th>Incumplimiento</th><th>Estado</th><th>Responsable</th><th>Fecha prevista</th><th>Fecha cierre</th><th>Evidencias</th></tr></thead><tbody>${incumRows}</tbody></table></div>
       </div>`;
-}
-
-async function recuperarPdfAuditoria(id, tipo) {
-    const auditoriaId = String(id || "").trim();
-    if (!auditoriaId) { alert("No se ha indicado el ID de la auditoría."); return false; }
-    // Abrir una pestaña durante el gesto del usuario evita que el navegador
-    // bloquee la navegación después de la consulta asíncrona.
-    let ventana = null;
-    try { ventana = window.open("about:blank", "_blank"); } catch (_) {}
-    try {
-        const resultado = await appGasGet({accion:"verificarInformePdf", auditoriaId, tipo: String(tipo || "")});
-        if (!resultado || !resultado.encontrado || !resultado.url) {
-            if (ventana && !ventana.closed) ventana.close();
-            alert("No se ha encontrado un PDF registrado para la auditoría " + auditoriaId + (tipo ? " (" + tipo + ")" : "") + ".");
-            return false;
-        }
-        if (ventana && !ventana.closed) ventana.location.href = resultado.url;
-        else window.location.href = resultado.url;
-        return true;
-    } catch (e) {
-        if (ventana && !ventana.closed) ventana.close();
-        alert("No se pudo recuperar el PDF de la auditoría " + auditoriaId + ".\n\n" + (e.message || e));
-        return false;
-    }
 }
 
 function exportarEstadisticasExcel() {
@@ -868,9 +834,15 @@ function generarIdAuditoria() {
         ).padStart(2, "0");
 
 
-    // Sufijo temporal + aleatorio para reducir colisiones entre auditorías creadas el mismo día.
-    const sufijo = Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 8).toUpperCase();
-    return `AUD-${año}${mes}${dia}-${sufijo}`;
+    const aleatorio =
+        Math.floor(
+            Math.random() * 9000
+        ) + 1000;
+
+
+    return (
+        `AUD-${año}${mes}${dia}-${aleatorio}`
+    );
 }
 
 
@@ -1064,7 +1036,28 @@ function asegurarEstilosDocumentacionFabricante() {
                 height:12px;
             }
         }
-    `;
+    
+        /* CLIMAX: controles individualizados con resultado y observación por fila. */
+        .manufacturer-review-table-climax .manufacturer-review-head,
+        .manufacturer-review-table-climax .manufacturer-review-row{
+            grid-template-columns:minmax(0,1fr) repeat(3,minmax(38px,48px)) minmax(120px,28%);
+            column-gap:5px;
+        }
+        .manufacturer-review-table-climax .manufacturer-review-observation{min-width:0}
+        .manufacturer-review-table-climax .manufacturer-review-observation textarea{
+            width:100%;min-width:0;box-sizing:border-box;resize:vertical;
+            padding:5px;border:1px solid #cbd5e1;border-radius:4px;
+            font:inherit;font-size:10px;line-height:1.2;
+        }
+        .manufacturer-review-table-climax .manufacturer-review-head>span:not(:first-child){text-align:center;overflow-wrap:anywhere}
+        @media(max-width:760px){
+            .manufacturer-review-table-climax .manufacturer-review-head{display:none}
+            .manufacturer-review-table-climax .manufacturer-review-row{
+                grid-template-columns:minmax(0,1fr) repeat(3,minmax(34px,42px));
+            }
+            .manufacturer-review-table-climax .manufacturer-review-observation{grid-column:1/-1}
+        }
+`;
     document.head.appendChild(style);
 }
 
@@ -2722,7 +2715,6 @@ function obtenerResumenEscaleras() {
         fabricante: u.datos && u.datos.fabricante || "",
         modelo: u.datos && u.datos.modelo || "",
         identificacion: u.datos && u.datos.identificacion || "",
-        fechaRevision: u.datos && u.datos.fechaRevision || "",
         estado: u.estado || "NO_INICIADO",
         incorrectos: Object.values(u.controles || {}).filter(c => c && c.resultado === "INCORRECTO").length,
         fotografiasIdentificacion: u.fotografiasIdentificacion || {}
@@ -2874,7 +2866,6 @@ async function finalizarAuditoriaDesdeResumen() {
     auditoria.fechaFinalizacion = obtenerFechaActual();
     auditoria.horaFinalizacion = obtenerHoraActual();
     auditoria.finalizada = true;
-    await guardarBorradorLocal("VEHICULOS_EQUIPOS", false);
     actualizarDashboard(); renderizarResumenFinalizar();
     let auditoriaGuardada = false;
     let fotosGuardadas = 0;
@@ -2883,7 +2874,6 @@ async function finalizarAuditoriaDesdeResumen() {
     try {
         const sync = await guardarAuditoriaYFotografias("VEHICULOS_EQUIPOS", auditoria);
         auditoriaGuardada = true;
-        if (!(sync.erroresFotografias || []).length) await eliminarBorradorLocal("VEHICULOS_EQUIPOS", auditoria.id);
         fotosGuardadas = sync.fotografiasGuardadas;
         fotosTotales = sync.fotografiasTotales;
         erroresFotografias = sync.erroresFotografias || [];
@@ -2937,7 +2927,7 @@ function renderizarResumenFinalizar() {
 
     const epiHtml = epis.length ? `<div class="table-responsive"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left;padding:6px;">EPI</th><th>Marca</th><th>Modelo</th><th>Identificación</th><th>Controles</th><th>Veredicto</th></tr></thead><tbody>${epis.map(e => `<tr><td style="padding:6px;">${escaparValorResumen(e.nombre)}</td><td>${escaparValorResumen(e.marca)}</td><td>${escaparValorResumen(e.modelo)}</td><td>${escaparValorResumen(e.identificacion)}</td><td>${e.controles}</td><td>${escaparValorResumen(e.resultado || "Pendiente")}</td></tr>`).join("")}</tbody></table></div>` : `<p>No hay elementos de EPIs registrados.</p>`;
     const radioHtml = radio.length ? `<div class="table-responsive"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left;padding:6px;">Equipo</th><th>Marca</th><th>Modelo</th><th>Identificación</th><th>Veredicto</th></tr></thead><tbody>${radio.map(e => `<tr><td style="padding:6px;">${escaparValorResumen(e.nombre)}</td><td>${escaparValorResumen(e.marca)}</td><td>${escaparValorResumen(e.modelo)}</td><td>${escaparValorResumen(e.identificacion)}</td><td>${escaparValorResumen(e.resultado || "Pendiente")}</td></tr>`).join("")}</tbody></table></div>` : `<p>No hay elementos específicos de RADIO registrados.</p>`;
-    const escHtml = escaleras.length ? `<div class="table-responsive"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left;padding:6px;">Escalera</th><th>Tipo</th><th>Fabricante</th><th>Modelo</th><th>Identificación</th><th>Fecha revisión</th><th>Estado</th></tr></thead><tbody>${escaleras.map(e => `<tr><td style="padding:6px;">${escaparValorResumen(e.nombre)}</td><td>${escaparValorResumen(e.tipo)}</td><td>${escaparValorResumen(e.fabricante)}</td><td>${escaparValorResumen(e.modelo)}</td><td>${escaparValorResumen(e.identificacion)}</td><td>${escaparValorResumen(e.fechaRevision || "No indicada")}</td><td>${escaparValorResumen(textoEstadoResumen(e.estado))}</td></tr>`).join("")}</tbody></table></div>` : `<p>No hay escaleras registradas.</p>`;
+    const escHtml = escaleras.length ? `<div class="table-responsive"><table style="width:100%;border-collapse:collapse;"><thead><tr><th style="text-align:left;padding:6px;">Escalera</th><th>Tipo</th><th>Fabricante</th><th>Modelo</th><th>Identificación</th><th>Estado</th></tr></thead><tbody>${escaleras.map(e => `<tr><td style="padding:6px;">${escaparValorResumen(e.nombre)}</td><td>${escaparValorResumen(e.tipo)}</td><td>${escaparValorResumen(e.fabricante)}</td><td>${escaparValorResumen(e.modelo)}</td><td>${escaparValorResumen(e.identificacion)}</td><td>${escaparValorResumen(textoEstadoResumen(e.estado))}</td></tr>`).join("")}</tbody></table></div>` : `<p>No hay escaleras registradas.</p>`;
     const incHtml = incidencias.length ? `<div class="table-responsive"><table style="width:100%;border-collapse:collapse;"><thead><tr><th>ID</th><th style="text-align:left;padding:6px;">Elemento</th><th>Descripción</th><th>Medida correctora</th><th>Estado</th><th>Fotos</th></tr></thead><tbody>${incidencias.map(i => `<tr><td>${escaparValorResumen(i.id)}</td><td style="padding:6px;">${escaparValorResumen(i.control || i.subcontrol || i.modulo || "")}</td><td>${escaparValorResumen(i.descripcion)}</td><td>${escaparValorResumen(i.medida)}</td><td>${escaparValorResumen(i.estado || "ABIERTA")}</td><td>${Array.isArray(i.fotografias) ? i.fotografias.length : 0}</td></tr>`).join("")}</tbody></table></div>` : `<p>No hay incidencias registradas.</p>`;
 
     contenido.innerHTML = `<div class="card"><h3>Resumen de la auditoría</h3>${datosHtml}</div>
@@ -3488,8 +3478,8 @@ function crearPdfAuditoriaLocal() {
         titulo("7. Escaleras");
         if (moduloEstaNoAplica("escaleras")) mostrarModuloNoAplica("Escaleras");
         else if (escaleras.length) {
-            tabla(escaleras.map(e=>[e.nombre,e.tipo,e.fabricante,e.modelo,e.identificacion,e.fechaRevision || "No indicada",textoEstadoResumen(e.estado)]),
-                [24,19,27,24,27,28,25],["Escalera","Tipo","Fabricante","Modelo","Identificación","Fecha revisión","Estado"]);
+            tabla(escaleras.map(e=>[e.nombre,e.tipo,e.fabricante,e.modelo,e.identificacion,textoEstadoResumen(e.estado)]),
+                [28,23,31,29,32,39],["Escalera","Tipo","Fabricante","Modelo","Identificación","Estado"]);
             const unidadesEsc = auditoria.modulos.escaleras.unidades || [];
             unidadesEsc.forEach((unidad,idx)=>{
                 inicializarFotografiasIdentificacionEscalera(unidad);
@@ -7436,7 +7426,7 @@ function cambiarResultadoBotiquin(nombre, resultado) {
     renderizarModuloBotiquin();
     actualizarDashboard();
 }
-function seleccionarFotografiaEnMemoria(callback, modoCamaraInicial) {
+function seleccionarFotografiaEnMemoria(callback) {
     /*
        Selector común de fotografías.
        - "Hacer foto": intenta abrir directamente la cámara trasera en móviles
@@ -7583,10 +7573,6 @@ function seleccionarFotografiaEnMemoria(callback, modoCamaraInicial) {
     overlay.addEventListener("click", function (event) {
         if (event.target === overlay) cerrarSelector();
     });
-
-    // Si el llamador ya ha elegido una opción, abre directamente ese selector.
-    // Los demás módulos conservan el cuadro común con ambas alternativas.
-    if (typeof modoCamaraInicial === "boolean") abrirInput(modoCamaraInicial);
 }
 
 function obtenerFotografiasIncidencia(incidencia) {
@@ -7650,18 +7636,6 @@ function sincronizarIncidenciaConOrigen(incidencia) {
             c.medida = incidencia.medida || "";
             c.observaciones = incidencia.observaciones || "";
             c.foto = incidencia.foto || (incidencia.fotografias && incidencia.fotografias[0]) || null;
-        }
-        return;
-    }
-
-    if (incidencia.origen === "ESCALERAS_FECHA_REVISION" && incidencia.unidadEscaleraId) {
-        const unidad = obtenerUnidadEscalera(incidencia.unidadEscaleraId);
-        const c = unidad && unidad.controles && unidad.controles.fechaRevision;
-        if (c) {
-            c.descripcion = incidencia.descripcion || "";
-            c.medida = incidencia.medida || "";
-            c.observaciones = incidencia.observaciones || "";
-            c.fotografias = incidencia.fotografias || [];
         }
         return;
     }
@@ -7877,7 +7851,6 @@ function crearUnidadEscaleraVacia(tipo = "") {
             fabricante: "",
             modelo: "",
             identificacion: "",
-            fechaRevision: "",
             observaciones: ""
         },
         controles: {},
@@ -8032,7 +8005,6 @@ function inicializarEscaleras() {
                 fabricante: escaleras.datos.fabricante || "",
                 modelo: escaleras.datos.modelo || "",
                 identificacion: escaleras.datos.identificacion || "",
-                fechaRevision: escaleras.datos.fechaRevision || "",
                 observaciones: escaleras.datos.observaciones || ""
             };
         }
@@ -8051,12 +8023,7 @@ function inicializarEscaleras() {
     escaleras.unidades.forEach(unidad => {
         if (!unidad.id) unidad.id = "ESC-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
         if (!unidad.datos) {
-            unidad.datos = { fabricante: "", modelo: "", identificacion: "", fechaRevision: "", observaciones: "" };
-        }
-        if (typeof unidad.datos.fechaRevision !== "string") unidad.datos.fechaRevision = "";
-        if (!unidad.controles || typeof unidad.controles !== "object") unidad.controles = {};
-        if (!unidad.controles.fechaRevision || typeof unidad.controles.fechaRevision !== "object") {
-            unidad.controles.fechaRevision = { resultado: "CORRECTO", descripcion: "", medida: "", observaciones: "", fotografias: [] };
+            unidad.datos = { fabricante: "", modelo: "", identificacion: "", observaciones: "" };
         }
         inicializarControlesUnidadEscalera(unidad);
         inicializarFotografiasIdentificacionEscalera(unidad);
@@ -8067,7 +8034,6 @@ function inicializarEscaleras() {
 function renderizarModuloEscaleras() {
 
     inicializarEscaleras();
-    evaluarFechasRevisionEscaleras();
 
     const contenido = document.getElementById("contenidoModulo");
     const escaleras = auditoria.modulos.escaleras;
@@ -8216,12 +8182,6 @@ function renderizarDatosUnidadEscalera(unidad) {
                     <input type="text" value="${escapeHtml(datos.identificacion || "")}"
                         oninput="actualizarDatoUnidadEscalera('${unidad.id}', 'identificacion', this.value)">
                 </div>
-                <div class="field">
-                    <label>Fecha de última revisión</label>
-                    <input type="date" value="${escapeHtml(datos.fechaRevision || "")}"
-                        onchange="actualizarFechaRevisionUnidadEscalera('${unidad.id}', this.value)">
-                    <small>Se generará una incidencia automática cuando hayan transcurrido 6 meses o más en la fecha de auditoría.</small>
-                </div>
             </div>
             <div class="field">
                 <label>Observaciones generales</label>
@@ -8313,90 +8273,6 @@ function cambiarTipoUnidadEscalera(idUnidad, tipo) {
     actualizarDashboard();
 }
 
-
-function fechaEscaleraDesdeISO(valor) {
-    if (!valor) return null;
-    const partes = String(valor).split("-").map(Number);
-    if (partes.length !== 3 || partes.some(n => !Number.isFinite(n))) return null;
-    const fecha = new Date(partes[0], partes[1] - 1, partes[2]);
-    fecha.setHours(0, 0, 0, 0);
-    return Number.isNaN(fecha.getTime()) ? null : fecha;
-}
-
-function fechaAuditoriaEscaleras() {
-    const campo = document.getElementById("fechaAuditoria");
-    const valor = (campo && campo.value) || (auditoria.datosGenerales && auditoria.datosGenerales.fecha) || "";
-    if (campo && campo.value && auditoria.datosGenerales) auditoria.datosGenerales.fecha = campo.value;
-    return fechaEscaleraDesdeISO(valor);
-}
-
-function revisionEscaleraVencida(unidad) {
-    const fechaRevision = fechaEscaleraDesdeISO(unidad && unidad.datos && unidad.datos.fechaRevision);
-    const fechaAuditoria = fechaAuditoriaEscaleras();
-    if (!fechaRevision || !fechaAuditoria || fechaRevision > fechaAuditoria) return false;
-    const diaOriginal = fechaRevision.getDate();
-    const primerDiaMesLimite = new Date(fechaRevision.getFullYear(), fechaRevision.getMonth() + 6, 1);
-    const ultimoDiaMesLimite = new Date(primerDiaMesLimite.getFullYear(), primerDiaMesLimite.getMonth() + 1, 0).getDate();
-    primerDiaMesLimite.setDate(Math.min(diaOriginal, ultimoDiaMesLimite));
-    return fechaAuditoria >= primerDiaMesLimite;
-}
-
-function evaluarFechaRevisionUnidadEscalera(idUnidad) {
-    const unidad = obtenerUnidadEscalera(idUnidad);
-    if (!unidad) return;
-    if (!unidad.controles || typeof unidad.controles !== "object") unidad.controles = {};
-    if (!unidad.controles.fechaRevision) unidad.controles.fechaRevision = { resultado: "CORRECTO", descripcion: "", medida: "", observaciones: "", fotografias: [] };
-    const control = unidad.controles.fechaRevision;
-    const fechaIndicada = !!(unidad.datos && unidad.datos.fechaRevision);
-    const vencida = fechaIndicada && revisionEscaleraVencida(unidad);
-    const id = "ESCALERAS_" + idUnidad + "_fechaRevision";
-    const existente = (auditoria.incidencias || []).find(i => i.id === id);
-
-    if (vencida) {
-        control.resultado = "INCORRECTO";
-        control.descripcion = "La última revisión de la escalera tiene una antigüedad de seis meses o superior respecto a la fecha de auditoría.";
-        control.medida = "Realizar la revisión periódica de la escalera y actualizar la identificación/etiqueta de revisión.";
-        control.observaciones = "Incidencia generada automáticamente al alcanzar o superar seis meses desde la fecha de revisión indicada.";
-        const incidencia = existente || { id, origen: "ESCALERAS_FECHA_REVISION", modulo: "ESCALERAS", unidadEscaleraId: idUnidad, controlClave: "fechaRevision", control: obtenerNombreControlEscalera("fechaRevision"), resultado: "INCORRECTO", estado: "ABIERTA", fechaIncidencia: obtenerFechaActual() };
-        incidencia.origen = "ESCALERAS_FECHA_REVISION";
-        incidencia.modulo = "ESCALERAS";
-        incidencia.unidadEscaleraId = idUnidad;
-        incidencia.controlClave = "fechaRevision";
-        incidencia.control = obtenerNombreControlEscalera("fechaRevision");
-        incidencia.resultado = "INCORRECTO";
-        incidencia.descripcion = control.descripcion;
-        incidencia.medida = control.medida;
-        incidencia.observaciones = control.observaciones;
-        if (!existente) auditoria.incidencias.push(incidencia);
-        control.incidenciaId = id;
-    } else {
-        if (existente && existente.origen === "ESCALERAS_FECHA_REVISION") {
-            auditoria.incidencias = auditoria.incidencias.filter(i => i.id !== id);
-            control.descripcion = "";
-            control.medida = "";
-            control.observaciones = "";
-        }
-        control.resultado = "CORRECTO";
-        control.incidenciaId = null;
-    }
-}
-
-function actualizarFechaRevisionUnidadEscalera(idUnidad, valor) {
-    const unidad = obtenerUnidadEscalera(idUnidad);
-    if (!unidad) return;
-    if (!unidad.datos) unidad.datos = {};
-    unidad.datos.fechaRevision = valor || "";
-    evaluarFechaRevisionUnidadEscalera(idUnidad);
-    auditoria.modulos.escaleras.estado = "EN_CURSO";
-    renderizarModuloEscaleras();
-    actualizarDashboard();
-}
-
-function evaluarFechasRevisionEscaleras() {
-    const unidades = auditoria && auditoria.modulos && auditoria.modulos.escaleras && auditoria.modulos.escaleras.unidades;
-    if (!Array.isArray(unidades)) return;
-    unidades.forEach(u => evaluarFechaRevisionUnidadEscalera(u.id));
-}
 
 function actualizarDatoUnidadEscalera(idUnidad, campo, valor) {
 
@@ -8592,8 +8468,7 @@ function obtenerNombreControlEscalera(nombre) {
         sujecionFijacion: "Sistema de sujeción o fijación adecuado cuando es necesario",
         protecciones: "Barandillas y protecciones adecuadas cuando corresponden",
         accesoDescenso: "Acceso y descenso seguros",
-        ausenciaObstaculos: "Ausencia de obstáculos o condiciones que dificulten la utilización",
-        fechaRevision: "Fecha de revisión de la escalera (6 meses o más)"
+        ausenciaObstaculos: "Ausencia de obstáculos o condiciones que dificulten la utilización"
     };
 
     return nombres[nombre] || nombre;
@@ -8603,7 +8478,6 @@ function obtenerNombreControlEscalera(nombre) {
 function guardarEscaleras() {
 
     const escaleras = auditoria.modulos.escaleras;
-    evaluarFechasRevisionEscaleras();
 
     if (escaleras.dispone === false) {
         escaleras.estado = "NO_APLICA";
@@ -9979,57 +9853,157 @@ const REGISTRO_REVISIONES_FASE3 = {
         tipoResultado: "PREGUNTA_DEFECTO",
         arnes: {
             tipoOficial: "ARNÉS CLIMAX",
-            documentoOficial: "CERTIFICADO DE REVISIÓN — ARNÉS CLIMAX",
+            documentoOficial: "DOCUMENTO DE REVISIÓN — ARNÉS CLIMAX",
             norma: "EN 365",
             plantillaClave: "CLIMAX_ARNES",
             controles: [
-                ["SEG1", "Condición del tejido/correa: ¿presenta daños, cortes, desgaste o deterioro?"],
-                ["SEG2", "Piezas mecánicas y remaches: ¿presentan defectos, daños o deformaciones?"],
-                ["SEG3", "Argollas D/anillas: ¿presentan daños, deformaciones o corrosión?"],
-                ["SEG4", "Mosquetones: ¿presentan daños o funcionamiento anómalo?"],
-                ["SEG5", "Hebillas/presillas: ¿presentan daños o funcionamiento anómalo?"],
-                ["SEG6", "Partes plásticas: ¿presentan daños o deterioro?"]
+                ["ARN_TEX_01", "Condición del tejido/correa — fibras externas cortadas, desgastadas o desgarradas"],
+                ["ARN_TEX_02", "Condición del tejido/correa — costuras, cortes o rotura del tejido"],
+                ["ARN_TEX_03", "Condición del tejido/correa — grietas"],
+                ["ARN_TEX_04", "Condición del tejido/correa — estiramiento excesivo"],
+                ["ARN_TEX_05", "Condición del tejido/correa — deterioro general"],
+                ["ARN_TEX_06", "Condición del tejido/correa — corrosión por exposición a ácidos o productos químicos"],
+                ["ARN_TEX_07", "Condición del tejido/correa — quemaduras"],
+                ["ARN_TEX_08", "Condición del tejido/correa — ¿las presas de plástico presentan daños o deterioro?"],
+                ["ARN_TEX_09", "Condición del tejido/correa — fibras externas cortadas, desgastadas o desgarradas (segunda zona)"],
+                ["ARN_TEX_10", "Condición del tejido/correa — costuras, cortes o rotura del tejido (segunda zona)"],
+                ["ARN_TEX_11", "Condición del tejido/correa — grietas (segunda zona)"],
+                ["ARN_MET_01", "Piezas mecánicas y remaches — desgaste excesivo o deformación"],
+                ["ARN_MET_02", "Piezas mecánicas y remaches — picaduras y grietas"],
+                ["ARN_MET_03", "Piezas mecánicas y remaches — deterioro general"],
+                ["ARN_MET_04", "Piezas mecánicas y remaches — corrosión"],
+                ["ARN_ARG_01", "Argollas D o anillas — deformaciones o desgaste excesivo (dobladuras, etc.)"],
+                ["ARN_ARG_02", "Argollas D o anillas — picaduras y grietas"],
+                ["ARN_ARG_03", "Argollas D o anillas — deterioro general"],
+                ["ARN_ARG_04", "Argollas D o anillas — corrosión"],
+                ["ARN_MOS_01", "Mosquetones — desgaste excesivo o deformaciones (dobladuras, etc.)"],
+                ["ARN_MOS_02", "Mosquetones — picaduras y grietas"],
+                ["ARN_MOS_03", "Mosquetones — deterioro general"],
+                ["ARN_MOS_04", "Mosquetones — defecto de funcionamiento"],
+                ["ARN_MOS_05", "Mosquetones — corrosión"],
+                ["ARN_MOS_06", "Mosquetones — remaches"],
+                ["ARN_HEB_01", "Hebillas automáticas / presillas — desgaste excesivo o deformaciones"],
+                ["ARN_HEB_02", "Hebillas automáticas / presillas — picaduras y grietas"],
+                ["ARN_HEB_03", "Hebillas automáticas / presillas — deterioro general"],
+                ["ARN_HEB_04", "Hebillas automáticas / presillas — defecto de funcionamiento"],
+                ["ARN_HEB_05", "Hebillas automáticas / presillas — corrosión"],
+                ["ARN_HEB_06", "Hebillas automáticas / presillas — remaches"],
+                ["ARN_PLA_01", "Partes plásticas — desgaste excesivo o deformaciones"],
+                ["ARN_PLA_02", "Partes plásticas — picaduras y grietas"],
+                ["ARN_PLA_03", "Partes plásticas — deterioro general"],
+                ["ARN_PLA_04", "Partes plásticas — defecto de funcionamiento"],
+                ["ARN_PLA_05", "Partes plásticas — corrosión"]
             ]
         },
         absorbedor: {
             tipoOficial: "ABSORBEDOR DE ENERGÍA CLIMAX",
-            documentoOficial: "CERTIFICADO DE REVISIÓN — ABSORBEDORES DE ENERGÍA CLIMAX",
+            documentoOficial: "DOCUMENTO DE REVISIÓN — ABSORBEDORES DE ENERGÍA",
             norma: "EN 355",
             plantillaClave: "CLIMAX_ABSORBEDOR",
             controles: [
-                ["TXT1", "Cintas: ¿presentan fibras deshilachadas, cortes, quemaduras o deterioro?"],
-                ["TXT2", "Cuerdas: ¿presentan cortes, desgaste o deterioro?"],
-                ["TXT3", "Costuras: ¿presentan hilos cortados, levantados o defectos?"],
-                ["TXT4", "Plásticos: ¿presentan grietas, roturas o deterioro?"],
-                ["MET1", "Hebillas y conectores: ¿presentan deformaciones, corrosión o daños?"],
-                ["ABS1", "Paquete absorbedor: ¿presenta activación, daños o anomalías?"]
+                ["ABS_CIN_01", "Cintas — fibras deshilachadas"],
+                ["ABS_CIN_02", "Cintas — fibras cortadas"],
+                ["ABS_CIN_03", "Cintas — fibras quemadas"],
+                ["ABS_CIN_04", "Cintas — corrosión por contacto con sustancias químicas"],
+                ["ABS_CIN_05", "Cintas — decoloración (posible exposición UV excesiva)"],
+                ["ABS_CIN_06", "Cintas — deformación por estiramiento"],
+                ["ABS_CUE_01", "Cuerdas — inspección visual: deformaciones"],
+                ["ABS_CUE_02", "Cuerdas — inspección visual: abultamientos"],
+                ["ABS_CUE_03", "Cuerdas — ¿el tacto no es homogéneo a lo largo de la cuerda?"],
+                ["ABS_CUE_04", "Cuerdas — ¿la cuerda ha perdido flexibilidad?"],
+                ["ABS_CUE_05", "Cuerdas — presenta rigidez"],
+                ["ABS_CUE_06", "Cuerdas — presenta abultamientos"],
+                ["ABS_CUE_07", "Cuerdas — presenta puntos de dureza"],
+                ["ABS_COS_01", "Costuras — fibras deshilachadas"],
+                ["ABS_COS_02", "Costuras — puntadas descosidas"],
+                ["ABS_COS_03", "Costuras — holgura en puntadas de hilo de los extremos"],
+                ["ABS_COS_04", "Costuras — fibras cortadas"],
+                ["ABS_COS_05", "Costuras — fibras quemadas"],
+                ["ABS_COS_06", "Costuras — corrosión por contacto con sustancias químicas"],
+                ["ABS_COS_07", "Costuras — decoloración (posible exposición UV excesiva)"],
+                ["ABS_PLA_01", "Plásticos — guardacabos en buenas condiciones"],
+                ["ABS_PLA_02", "Plásticos — guardacabos con fracturas"],
+                ["ABS_PLA_03", "Plásticos — guardacabos con astillas por rotura"],
+                ["ABS_PLA_04", "Plásticos — guardacabos con incrustaciones en la cuerda"],
+                ["ABS_PLA_05", "Plásticos — plástico protector de la costura en buenas condiciones"],
+                ["ABS_PLA_06", "Plásticos — plástico protector de la costura cuarteado"],
+                ["ABS_CON_01", "Hebillas y conectores — ¿el marcado de fecha o número de serie es ilegible?"],
+                ["ABS_CON_02", "Hebillas y conectores — existe algún defecto visible"],
+                ["ABS_CON_03", "Hebillas y conectores — ranuras"],
+                ["ABS_CON_04", "Hebillas y conectores — rebabas"],
+                ["ABS_CON_05", "Hebillas y conectores — incisiones"],
+                ["ABS_CON_06", "Hebillas y conectores — deformaciones"],
+                ["ABS_CON_07", "Hebillas y conectores — grietas"],
+                ["ABS_CON_08", "Hebillas y conectores — corrosión"],
+                ["ABS_CON_09", "Hebillas y conectores — desgaste general"],
+                ["ABS_CON_10", "Hebillas y conectores — ¿la apertura o el cierre no se realizan suavemente?"],
+                ["ABS_PQT_01", "Paquete absorbedor — ¿el marcado de fecha o número de serie de la etiqueta es ilegible?"],
+                ["ABS_PQT_02", "Paquete absorbedor — ¿el velcro no funciona o no contiene correctamente la cinta absorbedora?"],
+                ["ABS_PQT_03", "Paquete absorbedor — ¿la cinta absorbedora presenta daños según los criterios de cintas?"],
+                ["ABS_PQT_04", "Paquete absorbedor — ¿la cinta protectora presenta daños según los criterios de cintas?"],
+                ["ABS_PQT_05", "Paquete absorbedor — ¿la cinta de seguridad presenta daños según los criterios de cintas?"]
             ]
         },
         conector: {
             tipoOficial: "CONECTOR CLIMAX",
-            documentoOficial: "CERTIFICADO DE REVISIÓN — CONECTORES CLIMAX",
+            documentoOficial: "DOCUMENTO DE REVISIÓN — CONECTORES CLIMAX",
             norma: "EN 362",
             plantillaClave: "CLIMAX_CONECTOR",
             controles: [
-                ["SEG1", "Marcado/identificación y número de serie: ¿son legibles?"],
-                ["SEG2", "¿Existen defectos visibles?"],
-                ["SEG3", "¿Existen ranuras, rebabas o incisiones?"],
-                ["SEG4", "¿Existen deformaciones o grietas?"],
-                ["SEG5", "¿Existe corrosión o desgaste?"],
-                ["FUNC1", "¿La apertura y cierre funcionan suavemente y correctamente?"]
+                ["CON_01", "¿El marcado de fecha o número de serie es ilegible?"],
+                ["CON_02", "Existe algún defecto visible"],
+                ["CON_03", "Ranuras"],
+                ["CON_04", "Rebabas"],
+                ["CON_05", "Incisiones"],
+                ["CON_06", "Deformaciones"],
+                ["CON_07", "Grietas"],
+                ["CON_08", "Corrosión"],
+                ["CON_09", "Desgaste general"],
+                ["CON_10", "¿La apertura o el cierre del dispositivo no se realizan suavemente?"]
             ]
         },
         amarre: {
             tipoOficial: "ELEMENTO DE AMARRE CLIMAX",
-            documentoOficial: "CERTIFICADO DE REVISIÓN — ELEMENTOS DE AMARRE CLIMAX",
+            documentoOficial: "DOCUMENTO DE REVISIÓN — ELEMENTOS DE AMARRE",
             norma: "EN 354",
             plantillaClave: "CLIMAX_AMARRE",
             controles: [
-                ["TXT1", "Cintas: ¿presentan fibras deshilachadas, cortes, quemaduras o deterioro?"],
-                ["TXT2", "Cuerdas: ¿presentan cortes, desgaste o deterioro?"],
-                ["TXT3", "Costuras: ¿presentan hilos cortados, levantados o defectos?"],
-                ["TXT4", "Plásticos: ¿presentan grietas, roturas o deterioro?"],
-                ["MET1", "Hebillas y conectores: ¿presentan deformaciones, corrosión o daños?"]
+                ["AMA_CIN_01", "Cintas — fibras deshilachadas"],
+                ["AMA_CIN_02", "Cintas — fibras cortadas"],
+                ["AMA_CIN_03", "Cintas — fibras quemadas"],
+                ["AMA_CIN_04", "Cintas — corrosión por contacto con sustancias químicas"],
+                ["AMA_CIN_05", "Cintas — decoloración (posible exposición UV excesiva)"],
+                ["AMA_CIN_06", "Cintas — deformación por estiramiento"],
+                ["AMA_CUE_01", "Cuerdas — inspección visual: deformaciones"],
+                ["AMA_CUE_02", "Cuerdas — inspección visual: abultamientos"],
+                ["AMA_CUE_03", "Cuerdas — ¿el tacto no es homogéneo a lo largo de la cuerda?"],
+                ["AMA_CUE_04", "Cuerdas — ¿la cuerda ha perdido flexibilidad?"],
+                ["AMA_CUE_05", "Cuerdas — presenta rigidez"],
+                ["AMA_CUE_06", "Cuerdas — presenta abultamientos"],
+                ["AMA_CUE_07", "Cuerdas — presenta puntos de dureza"],
+                ["AMA_COS_01", "Costuras — fibras deshilachadas"],
+                ["AMA_COS_02", "Costuras — puntadas descosidas"],
+                ["AMA_COS_03", "Costuras — holgura en puntadas de hilo de los extremos"],
+                ["AMA_COS_04", "Costuras — fibras cortadas"],
+                ["AMA_COS_05", "Costuras — fibras quemadas"],
+                ["AMA_COS_06", "Costuras — corrosión por contacto con sustancias químicas"],
+                ["AMA_COS_07", "Costuras — decoloración (posible exposición UV excesiva)"],
+                ["AMA_PLA_01", "Plásticos — guardacabos en buenas condiciones"],
+                ["AMA_PLA_02", "Plásticos — guardacabos con fracturas"],
+                ["AMA_PLA_03", "Plásticos — guardacabos con astillas por rotura"],
+                ["AMA_PLA_04", "Plásticos — guardacabos con incrustaciones en la cuerda"],
+                ["AMA_PLA_05", "Plásticos — plástico protector de la costura en buenas condiciones"],
+                ["AMA_PLA_06", "Plásticos — plástico protector de la costura cuarteado"],
+                ["AMA_CON_01", "Hebillas y conectores — ¿el marcado de fecha o número de serie es ilegible?"],
+                ["AMA_CON_02", "Hebillas y conectores — existe algún defecto visible"],
+                ["AMA_CON_03", "Hebillas y conectores — ranuras"],
+                ["AMA_CON_04", "Hebillas y conectores — rebabas"],
+                ["AMA_CON_05", "Hebillas y conectores — incisiones"],
+                ["AMA_CON_06", "Hebillas y conectores — deformaciones"],
+                ["AMA_CON_07", "Hebillas y conectores — grietas"],
+                ["AMA_CON_08", "Hebillas y conectores — corrosión"],
+                ["AMA_CON_09", "Hebillas y conectores — desgaste general"],
+                ["AMA_CON_10", "Hebillas y conectores — ¿la apertura o el cierre no se realizan suavemente?"]
             ]
         }
     },
@@ -10455,6 +10429,27 @@ function actualizarRevisionFabricanteGeneral(claveEpi, claveSub, resultado) {
     actualizarDashboard();
 }
 
+function actualizarObservacionRevisionFabricanteGeneral(claveEpi, claveSub, valor) {
+    const control = auditoria && auditoria.modulos && auditoria.modulos.epis && auditoria.modulos.epis.controles
+        ? auditoria.modulos.epis.controles[claveEpi] : null;
+    if (!control) return;
+    inicializarRevisionFabricante(control);
+    if (!control.revisionFabricante.controles[claveSub]) control.revisionFabricante.controles[claveSub] = {resultado:"NO", observaciones:""};
+    control.revisionFabricante.controles[claveSub].observaciones = String(valor == null ? "" : valor);
+    auditoria.modulos.epis.estado = "EN_CURSO";
+}
+
+function actualizarObservacionRevisionFabricanteMultiple(claveEpi, idUnidad, claveSub, valor) {
+    const control = auditoria && auditoria.modulos && auditoria.modulos.epis && auditoria.modulos.epis.controles
+        ? auditoria.modulos.epis.controles[claveEpi] : null;
+    const unidad = resolverUnidadRevisionFabricante(claveEpi, idUnidad) || (control && control.unidades ? control.unidades[idUnidad] : null);
+    if (!unidad) return;
+    inicializarRevisionFabricante(unidad);
+    if (!unidad.revisionFabricante.controles[claveSub]) unidad.revisionFabricante.controles[claveSub] = {resultado:"NO", observaciones:""};
+    unidad.revisionFabricante.controles[claveSub].observaciones = String(valor == null ? "" : valor);
+    auditoria.modulos.epis.estado = "EN_CURSO";
+}
+
 function actualizarCampoRevisionFabricanteGeneral(claveEpi, campo, valor) {
     const control = auditoria.modulos.epis.controles[claveEpi];
     if (!control) return;
@@ -10786,7 +10781,8 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
         html += `<div class="form-grid manufacturer-review-meta">
             <div class="field"><label>Comentarios / observaciones</label><textarea rows="3" oninput="${llamadaCampo("comentarios")}">${escapeHtml(revision.comentarios || "")}</textarea></div>
             <div class="field"><label>Fecha de revisión</label><input type="date" value="${escapeHtml(revision.fechaRevision || "")}" oninput="${llamadaCampo("fechaRevision")}"></div>
-            <div class="field"><label>Verificado por</label><input type="text" value="${escapeHtml(revision.verificadoPor || "")}" oninput="${llamadaCampo("verificadoPor")}"></div>
+            ${esRevisionClimax ? `<div class="field"><label>Fecha de la próxima revisión</label><input type="date" value="${escapeHtml(revision.fechaProximaRevision || "")}" oninput="${llamadaCampo("fechaProximaRevision")}"></div>` : ""}
+            <div class="field"><label>Verificado por / responsable de la revisión</label><input type="text" value="${escapeHtml(revision.verificadoPor || "")}" oninput="${llamadaCampo("verificadoPor")}"></div>
             <div class="field"><label><strong>VEREDICTO DE LA REVISIÓN *</strong></label>
                 <select id="${idVeredicto}" onchange="${eventoVeredicto}">
                     <option value="">Pendiente de comprobación</option>
@@ -10804,8 +10800,8 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
         const tituloEspecial = esRevisionClimax ? "Control específico CLIMAX" : "Plantilla genérica de revisión";
 
         html += `<div class="manufacturer-review-notice"><strong>${escapeHtml(tituloEspecial)}</strong><br><small>${esRevisionClimax ? "Checklist basado en la documentación de revisión CLIMAX." : "Checklist genérico aplicable cuando no existe una plantilla específica del fabricante."}</small></div>`;
-        html += `<div class="manufacturer-review-table manufacturer-review-table-mm">
-            <div class="manufacturer-review-head"><span>Control de revisión</span>${opcionesEspeciales.map(v => `<span>${escapeHtml(v)}</span>`).join("")}</div>`;
+        html += `<div class="manufacturer-review-table manufacturer-review-table-mm ${esRevisionClimax ? "manufacturer-review-table-climax" : ""}">
+            <div class="manufacturer-review-head"><span>Control de revisión</span>${opcionesEspeciales.map(v => `<span>${escapeHtml(v)}</span>`).join("")}<span>Observaciones</span></div>`;
 
         (config.controles || []).forEach(item => {
             const clave = item[0];
@@ -10820,7 +10816,10 @@ function renderizarRevisionFabricante(elemento, claveEpi, idUnidad, configOverri
                 const evento = llamadaControl(clave, valor);
                 html += `<label><input type="radio" name="esp_${escapeHtml(claveEpi)}_${escapeHtml(idUnidad || 'single')}_${escapeHtml(clave)}" value="${escapeHtml(valor)}" ${sub.resultado === valor ? "checked=\"checked\"" : ""} data-mfr-result="${escapeHtml(String(sub.resultado || ""))}" ${valor === positivoEspecial ? 'data-mfr-positive="true"' : ''} autocomplete="off" onchange="${evento}"><span>${escapeHtml(valor)}</span></label>`;
             });
-            html += `</div>`;
+            const eventoObs = (idUnidad !== null && idUnidad !== undefined && String(idUnidad) !== "")
+                ? `actualizarObservacionRevisionFabricanteMultiple(${JSON.stringify(String(claveEpi))},${JSON.stringify(String(idUnidad))},${JSON.stringify(String(clave))},this.value)`
+                : `actualizarObservacionRevisionFabricanteGeneral(${JSON.stringify(String(claveEpi))},${JSON.stringify(String(clave))},this.value)`;
+            html += `<div class="manufacturer-review-observation"><textarea rows="1" aria-label="Observaciones ${escapeHtml(nombre)}" placeholder="Observaciones" oninput="${eventoObs}">${escapeHtml(sub.observaciones || "")}</textarea></div></div>`;
         });
         html += `</div>`;
         html += `<div class="form-grid manufacturer-review-meta">
@@ -11944,244 +11943,7 @@ function generarIdAuditoriaCampo() {
     const d = new Date();
     const p = n => String(n).padStart(2, "0");
     const base = `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}`;
-    // El ID se conserva en el borrador local y se reutiliza en todos los reintentos de envío.
-    const sufijo = Date.now().toString(36).toUpperCase() + "-" + Math.random().toString(36).slice(2, 8).toUpperCase();
-    return `AC-${base}-${sufijo}`;
-}
-
-
-/* =========================================================
-   V39.1 — BORRADORES LOCALES E IDEMPOTENCIA DE ENVÍO
-   Los borradores completos (incluidas fotos y firmas) se guardan en IndexedDB.
-   No se envían al backend hasta que el usuario finaliza la auditoría.
-   ========================================================= */
-const APP_DRAFT_DB_NAME = "APP_AUDITORIAS_V39_DRAFTS";
-const APP_DRAFT_DB_VERSION = 1;
-const APP_DRAFT_STORE = "borradores";
-const APP_DRAFT_KEYS = { VEHICULOS_EQUIPOS: "VEHICULOS_EQUIPOS", CAMPO: "CAMPO" };
-window._auditoriasConfirmadasLocal = window._auditoriasConfirmadasLocal || new Set();
-window._borradoresLocalesRecuperados = [];
-let _appDraftDbPromise = null;
-let _appDraftSaveTimer = null;
-let _appDraftAutosaveInstalled = false;
-
-function abrirBaseBorradoresLocal() {
-    if (_appDraftDbPromise) return _appDraftDbPromise;
-    _appDraftDbPromise = new Promise((resolve, reject) => {
-        if (!window.indexedDB) { reject(new Error("Este navegador no permite almacenamiento local IndexedDB.")); return; }
-        const req = indexedDB.open(APP_DRAFT_DB_NAME, APP_DRAFT_DB_VERSION);
-        req.onupgradeneeded = () => {
-            const db = req.result;
-            if (!db.objectStoreNames.contains(APP_DRAFT_STORE)) db.createObjectStore(APP_DRAFT_STORE, { keyPath: "key" });
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error || new Error("No se pudo abrir el almacenamiento local."));
-    });
-    return _appDraftDbPromise;
-}
-
-function copiarEstadoAuditoriaLocal(obj) {
-    return JSON.parse(JSON.stringify(obj));
-}
-
-function borradorTieneContenido(tipo, actual) {
-    if (!actual) return false;
-    if (tipo === "CAMPO") {
-        const d = actual.datos || {};
-        const campos = [d.auditor, d.auditorCargo, d.tipoPersonal, d.actividad, d.actividadOtra, d.empresa, d.proyecto, d.trabajador, d.dniNie, d.obra, d.direccion, d.cliente, d.trabajosRiesgoEspecial];
-        return campos.some(v => String(v || "").trim() !== "") ||
-            (actual.trabajadores || []).length > 0 || (actual.incidencias || []).length > 0 ||
-            (actual.fotografias || []).length > 0 || !!(actual.firmas && (actual.firmas.auditor || actual.firmas.trabajador)) ||
-            Object.values(actual.comprobaciones || {}).some(c => c && String(c.resultado || "").trim() !== "") ||
-            String(actual.estado || "") !== "BORRADOR";
-    }
-    const d = actual.datosGenerales || {};
-    const campos = [d.auditor, d.tipoPersonal, d.actividad, d.actividadOtra, d.empresa, d.proyecto, d.trabajador, d.dniNie];
-    function hayCambioNoPredeterminado(obj, clave) {
-        if (Array.isArray(obj)) return obj.some(x => hayCambioNoPredeterminado(x, clave));
-        if (!obj || typeof obj !== "object") return false;
-        return Object.keys(obj).some(k => {
-            const v = obj[k];
-            if (typeof v === "string") {
-                const t = v.trim().toUpperCase();
-                if (["dataUrl", "base64", "imagen"].includes(k) && /^DATA:IMAGE\//i.test(v)) return true;
-                if (["observaciones", "comentarios", "descripcion", "numeroSerie", "serie", "fechaRevision", "marca", "modelo"].includes(k) && t) return true;
-                if (["resultado", "veredicto"].includes(k) && t && !["CORRECTO", "CORRECTA", "APTO", "B", "SI"].includes(t)) return true;
-                if (k === "estado" && t && !["NO_INICIADO", "BORRADOR", ""].includes(t)) return true;
-            }
-            return hayCambioNoPredeterminado(v, k);
-        });
-    }
-    const modulosActivos = hayCambioNoPredeterminado(actual.modulos || {});
-    return campos.some(v => String(v || "").trim() !== "") || (actual.incidencias || []).length > 0 || (actual.fotografias || []).length > 0 ||
-        !!(actual.firmas && Object.values(actual.firmas).some(v => String(v || "").trim() !== "")) ||
-        modulosActivos || String(actual.estado || "") !== "BORRADOR";
-}
-
-function capturarFormularioActivoAntesDeGuardar() {
-    const activa = document.querySelector(".screen.active");
-    const idActiva = activa ? String(activa.id || "") : "";
-    try {
-        if (idActiva === "datosGenerales") guardarDatosGenerales();
-    } catch (_) {}
-    try {
-        const contenidoCampo = document.getElementById("contenidoModuloCampo");
-        if (idActiva === "moduloCampo" && contenidoCampo && contenidoCampo.querySelector("#campoFecha")) guardarDatosCampoDesdeFormulario();
-    } catch (_) {}
-}
-
-async function guardarBorradorLocal(tipo, mostrarError) {
-    const esCampo = tipo === "CAMPO";
-    const actual = esCampo ? auditoriaCampo : auditoria;
-    if (!actual || !actual.id) return false;
-    if (!borradorTieneContenido(tipo, actual)) return false;
-    const key = tipo;
-    if (window._auditoriasConfirmadasLocal.has(key + ":" + actual.id)) return false;
-    const registro = {
-        key,
-        id: String(actual.id),
-        tipo,
-        estado: String(actual.estado || "BORRADOR"),
-        actualizado: new Date().toISOString(),
-        datos: copiarEstadoAuditoriaLocal(actual)
-    };
-    try {
-        const db = await abrirBaseBorradoresLocal();
-        await new Promise((resolve, reject) => {
-            const tx = db.transaction(APP_DRAFT_STORE, "readwrite");
-            tx.objectStore(APP_DRAFT_STORE).put(registro);
-            tx.oncomplete = resolve;
-            tx.onerror = () => reject(tx.error || new Error("No se pudo guardar el borrador local."));
-            tx.onabort = () => reject(tx.error || new Error("Se canceló el guardado local."));
-        });
-        return true;
-    } catch (e) {
-        // Fallback para navegadores sin IndexedDB. Puede tener menor capacidad para fotos grandes.
-        try {
-            localStorage.setItem("appAuditoriasDraftFallback:" + key, JSON.stringify(registro));
-            return true;
-        } catch (fallbackError) {
-            console.error("No se pudo guardar el borrador local", e, fallbackError);
-            if (mostrarError || !window._appDraftWarningShown) {
-                window._appDraftWarningShown = true;
-                alert("ATENCIÓN: no se ha podido guardar una copia local de la auditoría. No cierre el navegador hasta resolver el problema de almacenamiento. Compruebe el espacio disponible y los permisos del navegador.\n\n" + (fallbackError.message || fallbackError));
-            }
-            return false;
-        }
-    }
-}
-
-async function eliminarBorradorLocal(tipo, id) {
-    const key = tipo + ":" + String(id || "");
-    window._auditoriasConfirmadasLocal.add(key);
-    try {
-        const db = await abrirBaseBorradoresLocal();
-        await new Promise((resolve, reject) => {
-            const tx = db.transaction(APP_DRAFT_STORE, "readwrite");
-            tx.objectStore(APP_DRAFT_STORE).delete(tipo);
-            tx.oncomplete = resolve;
-            tx.onerror = () => reject(tx.error || new Error("No se pudo limpiar el borrador local."));
-        });
-    } catch (_) {}
-    try { localStorage.removeItem("appAuditoriasDraftFallback:" + tipo); } catch (_) {}
-}
-
-async function leerBorradorLocal(tipo) {
-    try {
-        const db = await abrirBaseBorradoresLocal();
-        const r = await new Promise((resolve, reject) => {
-            const tx = db.transaction(APP_DRAFT_STORE, "readonly");
-            const req = tx.objectStore(APP_DRAFT_STORE).get(tipo);
-            req.onsuccess = () => resolve(req.result || null);
-            req.onerror = () => reject(req.error || new Error("No se pudo leer el borrador local."));
-        });
-        if (r) return r;
-    } catch (_) {}
-    try {
-        const raw = localStorage.getItem("appAuditoriasDraftFallback:" + tipo);
-        return raw ? JSON.parse(raw) : null;
-    } catch (_) { return null; }
-}
-
-function aplicarDatosGeneralesVehiculoAlFormulario() {
-    const dg = (auditoria && auditoria.datosGenerales) || {};
-    const valores = {
-        idAuditoria: auditoria.id, fechaAuditoria: dg.fecha, horaInicio: dg.horaInicio,
-        auditor: dg.auditor, tipoPersonal: dg.tipoPersonal, actividad: dg.actividad,
-        actividadOtra: dg.actividadOtra, empresa: dg.empresa, proyecto: dg.proyecto,
-        trabajador: dg.trabajador, dniNieTrabajador: dg.dniNie
-    };
-    Object.keys(valores).forEach(id => { const el = document.getElementById(id); if (el && valores[id] != null) el.value = valores[id]; });
-    ["tipoPersonal", "actividad"].forEach(nombre => {
-        document.querySelectorAll('input[name="' + nombre + '"]').forEach(el => { el.checked = String(el.value || "") === String(dg[nombre] || ""); });
-    });
-    const loc = dg.localizacion || {};
-    const locVals = { direccion:loc.direccion, poblacion:loc.poblacion, provincia:loc.provincia, codigoPostal:loc.codigoPostal };
-    Object.keys(locVals).forEach(id => { const el=document.getElementById(id); if(el && locVals[id]!=null) el.value=locVals[id]; });
-    const head=document.getElementById("auditIdHeader"); if(head) head.textContent=auditoria.id;
-}
-
-async function restaurarBorradoresLocales() {
-    const v = await leerBorradorLocal(APP_DRAFT_KEYS.VEHICULOS_EQUIPOS);
-    const c = await leerBorradorLocal(APP_DRAFT_KEYS.CAMPO);
-    if (v && v.datos && v.id === String(v.datos.id || "")) {
-        Object.assign(auditoria, copiarEstadoAuditoriaLocal(v.datos));
-        auditoria.id = String(v.id);
-        aplicarDatosGeneralesVehiculoAlFormulario();
-        window._borradoresLocalesRecuperados.push("Vehículos y Equipos");
-    }
-    if (c && c.datos && c.id === String(c.datos.id || "")) {
-        auditoriaCampo = copiarEstadoAuditoriaLocal(c.datos);
-        inicializarAuditoriaCampo();
-        window._borradoresLocalesRecuperados.push("Campo");
-        // Reconstituye también los datos compartidos con Vehículos/Equipos tras una reapertura.
-        try { sincronizarDatosCampoEnVehiculos(true); } catch (_) {}
-        aplicarDatosGeneralesVehiculoAlFormulario();
-    }
-    return window._borradoresLocalesRecuperados.slice();
-}
-
-function tipoAuditoriaActivaParaBorrador() {
-    const root = document.getElementById("appRoot");
-    if (root && root.hidden) return "";
-    const activa = document.querySelector(".screen.active");
-    const id = activa ? String(activa.id || "") : "";
-    if (id === "dashboardCampo" || id === "moduloCampo") return "CAMPO";
-    if (["datosGenerales", "modulo", "dashboardVehiculos", "dashboardVE", "dashboard"].includes(id)) return "VEHICULOS_EQUIPOS";
-    return "";
-}
-
-function guardarBorradorActivoLocal() {
-    capturarFormularioActivoAntesDeGuardar();
-    const tipo = tipoAuditoriaActivaParaBorrador();
-    if (tipo) return guardarBorradorLocal(tipo, false);
-    return Promise.resolve(false);
-}
-
-function programarGuardadoBorradoresLocales(tipoDetectado) {
-    if (_appDraftSaveTimer) clearTimeout(_appDraftSaveTimer);
-    const tipoObjetivo = tipoDetectado || tipoAuditoriaActivaParaBorrador();
-    _appDraftSaveTimer = setTimeout(() => {
-        capturarFormularioActivoAntesDeGuardar();
-        if (tipoObjetivo) guardarBorradorLocal(tipoObjetivo, false);
-    }, 400);
-}
-
-function instalarAutoguardadoLocal() {
-    if (_appDraftAutosaveInstalled) return;
-    _appDraftAutosaveInstalled = true;
-    ["input", "change", "click", "pointerup", "keyup"].forEach(eventName => {
-        document.addEventListener(eventName, () => {
-            const tipo = tipoAuditoriaActivaParaBorrador();
-            // Captura el formulario antes de que un botón de navegación cambie de pantalla.
-            if (["input", "change", "click"].includes(eventName)) capturarFormularioActivoAntesDeGuardar();
-            programarGuardadoBorradoresLocales(tipo);
-        }, true);
-    });
-    window.addEventListener("pagehide", () => {
-        // El guardado normal es asíncrono; pagehide intenta adelantar el último estado activo.
-        guardarBorradorActivoLocal();
-    });
+    return `AC-${base}-${Math.floor(Math.random()*9000)+1000}`;
 }
 
 function inicializarAuditoriaCampo() {
@@ -12236,248 +11998,12 @@ function instalarDashboardAuditoriasIndependientes() {
         .inc-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}.inc-kpi{padding:16px;border:1px solid #ccc;border-radius:8px;background:#fff;text-align:center}.inc-kpi strong{display:block;font-size:1.8rem}.inc-table td,.inc-table th{padding:7px;border-bottom:1px solid #ddd;vertical-align:top}.inc-table th{white-space:nowrap}.inc-actions{display:flex;gap:6px;flex-wrap:wrap}.inc-badge{display:inline-block;padding:3px 8px;border-radius:12px;font-size:.78rem;font-weight:700;background:#eee}.inc-evidence-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.inc-evidence-card{border:1px solid #ccc;border-radius:7px;padding:8px;background:#fff}.inc-evidence-card img{width:100%;height:150px;object-fit:contain;background:#f5f5f5}.inc-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.inc-detail-grid .full{grid-column:1/-1}.inc-filter-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.inc-filter-grid label{display:flex;flex-direction:column;gap:4px}.inc-small{font-size:.82rem;color:#666}@media(max-width:900px){.inc-kpi-grid{grid-template-columns:repeat(2,1fr)}.inc-filter-grid,.inc-detail-grid{grid-template-columns:1fr}.inc-evidence-grid{grid-template-columns:1fr}.inc-detail-grid .full{grid-column:auto}}`;
       document.head.appendChild(stInc);
     }
-    sec.querySelector(".module-grid").insertAdjacentHTML("beforeend", `<button type="button" class="module-card summary-card" onclick="abrirDashboardEstadisticas()"><span class="module-icon">📊</span><strong>Estadísticas</strong><span class="status status-gray">BBDD</span></button><button type="button" class="module-card summary-card" onclick="abrirPanelEmpresas()"><span class="module-icon">🏢</span><strong>Empresas</strong><span class="status status-gray">Catálogo automático</span></button><button type="button" class="module-card summary-card" onclick="abrirGestionIncidencias()"><span class="module-icon">⚠️</span><strong>Gestión de incidencias</strong><span id="gestionIncidenciasBadge" class="status status-gray">Consultar</span></button>`);
-    instalarResumenDashboardGeneral(sec);
+    sec.querySelector(".module-grid").insertAdjacentHTML("beforeend", `<button type="button" class="module-card summary-card" onclick="abrirDashboardEstadisticas()"><span class="module-icon">📊</span><strong>Estadísticas</strong><span class="status status-gray">BBDD</span></button><button type="button" class="module-card summary-card" onclick="abrirPanelEmpresas()"><span class="module-icon">🏢</span><strong>Empresas</strong><span class="status status-gray">Catálogo automático</span></button><button type="button" class="module-card summary-card" onclick="abrirGestionIncidencias()"><span class="module-icon">⚠️</span><strong>Gestión de incidencias</strong><span id="gestionIncidenciasBadge" class="status status-gray">Cargando…</span></button>`);
     const tituloHeader = document.querySelector(".app-header h1");
     if (tituloHeader) tituloHeader.textContent = "Auditorías SPM Grupo Zener";
     inicializarAuditoriaCampo();
     instalarDashboardCampo();
 }
-
-/* =========================================================
-   V39 — DASHBOARD GENERAL (resumen consolidado)
-   Aislado de los módulos de auditoría y de las plantillas de fabricantes.
-   ========================================================= */
-function instalarResumenDashboardGeneral(menu) {
-    if (!menu || document.getElementById("resumenGeneralAuditorias")) return;
-    const resumen = document.createElement("section");
-    resumen.id = "resumenGeneralAuditorias";
-    resumen.className = "general-dashboard-summary";
-    resumen.innerHTML = `
-      <div class="general-dashboard-summary-head">
-        <div><h3>Resumen general</h3><p>Indicadores consolidados de las auditorías registradas.</p></div>
-        <div class="general-dashboard-actions"><span id="resumenGeneralActualizado" aria-live="polite">Pendiente de consulta</span><button type="button" class="secondary-button" id="btnActualizarResumenGeneral">↻ Actualizar indicadores</button></div>
-      </div>
-      <div class="general-dashboard-kpis" id="resumenGeneralKpis">
-        <div class="general-kpi"><span>Auditorías registradas</span><strong>—</strong></div>
-        <div class="general-kpi"><span>Auditorías de vehículos</span><strong>—</strong></div>
-        <div class="general-kpi"><span>Auditorías de campo</span><strong>—</strong></div>
-        <div class="general-kpi"><span>Auditorías con incidencias</span><strong>—</strong></div>
-        <div class="general-kpi"><span>Trabajadores registrados</span><strong>—</strong></div>
-        <div class="general-kpi"><span>Empresas registradas</span><strong>—</strong></div>
-      </div>
-      <p id="resumenGeneralEstado" class="general-dashboard-status" role="status" aria-live="polite">Los indicadores se cargarán al iniciar sesión.</p>
-      <section id="resumenIncidenciasDashboard" class="inc-summary-panel" aria-labelledby="incSummaryTitle">
-        <div class="inc-summary-head">
-          <div><h3 id="incSummaryTitle">Seguimiento de incidencias</h3><p>Incidencias registradas, filtrables por empresa y provincia.</p></div>
-          <div class="inc-summary-actions">
-            <button type="button" class="secondary-button" id="btnActualizarResumenIncidencias">↻ Actualizar incidencias</button>
-            <button type="button" class="secondary-button" id="btnAbrirGestionCompleta">Ver gestión completa</button>
-          </div>
-        </div>
-        <div class="inc-summary-filters">
-          <label>Empresa
-            <select id="incSummaryEmpresa"><option value="">Todas las empresas</option></select>
-          </label>
-          <label>Provincia
-            <select id="incSummaryProvincia"><option value="">Todas las provincias</option></select>
-          </label>
-        </div>
-        <div id="incSummaryKpis" class="inc-summary-kpis">
-          <div class="inc-summary-kpi"><span>Abiertas</span><strong>—</strong></div>
-          <div class="inc-summary-kpi"><span>En proceso</span><strong>—</strong></div>
-          <div class="inc-summary-kpi"><span>Pendientes de evidencias</span><strong>—</strong></div>
-          <div class="inc-summary-kpi"><span>Cerradas</span><strong>—</strong></div>
-        </div>
-        <div class="inc-followup-block">
-          <div class="inc-followup-heading"><div><h4>Incidencias que requieren seguimiento</h4><p>Ordenadas por vencimiento y urgencia. Las cerradas no aparecen en esta lista.</p></div><span id="incSummaryFollowupCount" class="inc-followup-count">0 pendientes</span></div>
-          <div class="table-responsive"><table class="inc-followup-table" style="width:100%;border-collapse:collapse">
-            <thead><tr><th>Prioridad</th><th>Incidencia / proyecto</th><th>Empresa / provincia</th><th>Estado</th><th>Responsable</th><th>Fecha prevista</th></tr></thead>
-            <tbody id="incSummaryFollowupTable"><tr><td colspan="6" style="text-align:center;padding:14px">Pulsa «Actualizar incidencias».</td></tr></tbody>
-          </table></div>
-        </div>
-        <p id="incSummaryStatus" class="general-dashboard-status" role="status" aria-live="polite">Pulsa «Actualizar incidencias» para consultar los datos.</p>
-      </section>`;
-    const grid = menu.querySelector(".module-grid");
-    if (grid) menu.insertBefore(resumen, grid);
-    else menu.appendChild(resumen);
-
-    if (!document.getElementById("estilosResumenGeneralAuditorias")) {
-      const style = document.createElement("style");
-      style.id = "estilosResumenGeneralAuditorias";
-      style.textContent = `
-        .general-dashboard-summary{margin:18px 0 24px;padding:18px;background:#f8fafc;border:1px solid #dbe3ec;border-radius:14px;color:#172033}
-        .general-dashboard-summary-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px;flex-wrap:wrap}
-        .general-dashboard-summary-head h3{margin:0 0 4px;font-size:1.15rem}
-        .general-dashboard-summary-head p{margin:0;color:#64748b;font-size:.92rem}
-        .general-dashboard-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-        .general-dashboard-actions span{font-size:.82rem;color:#64748b}
-        .general-dashboard-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-        .general-kpi{padding:14px;background:#fff;border:1px solid #e2e8f0;border-radius:10px;min-width:0}
-        .general-kpi span{display:block;font-size:.84rem;color:#526174;line-height:1.35}
-        .general-kpi strong{display:block;margin-top:7px;font-size:1.65rem;line-height:1.2;color:#174a7c;font-variant-numeric:tabular-nums}
-        .general-dashboard-status{min-height:1.1em;margin:12px 0 0;font-size:.86rem;color:#64748b}
-        @media(max-width:760px){.general-dashboard-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.general-dashboard-summary-head{align-items:flex-start}.general-dashboard-actions{width:100%;justify-content:space-between}}
-        @media(max-width:440px){.general-dashboard-kpis{grid-template-columns:1fr}.general-dashboard-actions{align-items:stretch;flex-direction:column}}
-        .inc-summary-panel{margin-top:20px;padding-top:18px;border-top:1px solid #dbe3ec}
-        .inc-summary-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
-        .inc-summary-head h3{margin:0 0 4px;font-size:1.08rem}
-        .inc-summary-head p{margin:0;color:#64748b;font-size:.9rem}
-        .inc-summary-actions{display:flex;gap:8px;flex-wrap:wrap}
-        .inc-summary-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}
-        .inc-summary-filters label{display:flex;flex-direction:column;gap:5px;font-size:.9rem;font-weight:600}
-        .inc-summary-filters select{min-height:38px;border:1px solid #cbd5e1;border-radius:7px;padding:7px;background:#fff;color:#172033;font:inherit}
-        .inc-summary-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-        .inc-summary-kpi{padding:12px;background:#fff;border:1px solid #e2e8f0;border-radius:9px;min-width:0}
-        .inc-summary-kpi span{display:block;font-size:.82rem;color:#526174;line-height:1.35}
-        .inc-summary-kpi strong{display:block;margin-top:6px;font-size:1.5rem;color:#174a7c;font-variant-numeric:tabular-nums}
-        .inc-followup-block{margin-top:18px}.inc-followup-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px}
-        .inc-followup-heading h4{margin:0 0 4px;font-size:1rem}.inc-followup-heading p{margin:0;color:#64748b;font-size:.84rem}
-        .inc-followup-count{font-size:.82rem;font-weight:700;padding:5px 9px;border-radius:20px;background:#e2e8f0;color:#334155}
-        .inc-followup-table th,.inc-followup-table td{padding:9px 8px;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:top;font-size:.86rem}
-        .inc-followup-table th{white-space:nowrap;background:#f1f5f9;color:#334155}.inc-followup-small{display:block;margin-top:3px;color:#64748b;font-size:.78rem}
-        .inc-priority{display:inline-block;padding:4px 8px;border-radius:12px;font-weight:700;font-size:.76rem;white-space:nowrap}
-        .inc-priority-overdue{background:#fee2e2;color:#991b1b}.inc-priority-soon{background:#ffedd5;color:#9a3412}.inc-priority-no-date{background:#fef3c7;color:#92400e}.inc-priority-normal{background:#dcfce7;color:#166534}
-        .inc-followup-empty{text-align:center!important;padding:16px!important;color:#64748b}.inc-followup-open{border:0;background:transparent;color:#175a9b;text-decoration:underline;cursor:pointer;padding:0;font:inherit;font-weight:700;text-align:left}
-        @media(max-width:760px){.inc-summary-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.inc-summary-filters{grid-template-columns:1fr}.inc-summary-actions{width:100%}.inc-followup-table{min-width:760px}}
-        @media(max-width:440px){.inc-summary-kpis{grid-template-columns:1fr}.inc-summary-actions button{width:100%}}
-      `;
-      document.head.appendChild(style);
-    }
-    const btn = document.getElementById("btnActualizarResumenGeneral");
-    if (btn) btn.addEventListener("click", () => actualizarResumenDashboardGeneral());
-    const btnInc = document.getElementById("btnActualizarResumenIncidencias");
-    if (btnInc) btnInc.addEventListener("click", () => actualizarResumenIncidenciasDashboard());
-    const btnGestion = document.getElementById("btnAbrirGestionCompleta");
-    if (btnGestion) btnGestion.addEventListener("click", () => abrirGestionIncidencias());
-    const empresaInc = document.getElementById("incSummaryEmpresa");
-    const provinciaInc = document.getElementById("incSummaryProvincia");
-    if (empresaInc) empresaInc.addEventListener("change", renderResumenIncidenciasDashboard);
-    if (provinciaInc) provinciaInc.addEventListener("change", renderResumenIncidenciasDashboard);
-}
-
-async function actualizarResumenDashboardGeneral() {
-    const host = document.getElementById("resumenGeneralKpis");
-    const estado = document.getElementById("resumenGeneralEstado");
-    const actualizado = document.getElementById("resumenGeneralActualizado");
-    if (!host) return;
-    if (estado) estado.textContent = "Consultando los indicadores en la base de datos…";
-    if (actualizado) actualizado.textContent = "Actualizando…";
-    const btn = document.getElementById("btnActualizarResumenGeneral");
-    if (btn) btn.disabled = true;
-    try {
-      const d = await cargarEstadisticasEmpresas();
-      const items = [
-        ["Auditorías registradas", Number(d.totalAuditorias || 0)],
-        ["Auditorías de vehículos", Number(d.vehiculos || 0)],
-        ["Auditorías de campo", Number(d.campo || 0)],
-        ["Auditorías con incidencias", Number(d.conIncidencias || 0)],
-        ["Trabajadores registrados", Number(d.totalTrabajadores || 0)],
-        ["Empresas registradas", Number(d.empresas || 0)]
-      ];
-      host.replaceChildren();
-      items.forEach(([label, value]) => {
-        const card = document.createElement("div"); card.className = "general-kpi";
-        const name = document.createElement("span"); name.textContent = label;
-        const number = document.createElement("strong"); number.textContent = value.toLocaleString("es-ES");
-        card.append(name, number); host.appendChild(card);
-      });
-      if (estado) estado.textContent = "Indicadores cargados correctamente desde la base de datos.";
-      if (actualizado) actualizado.textContent = "Actualizado: " + new Date().toLocaleString("es-ES", {dateStyle:"short", timeStyle:"short"});
-      return d;
-    } catch (e) {
-      if (estado) estado.textContent = "No se pudieron cargar los indicadores. Comprueba la sesión o pulsa Actualizar indicadores para reintentar.";
-      if (actualizado) actualizado.textContent = "Sin datos actualizados";
-      console.warn("Dashboard general: no se pudieron cargar los indicadores", e);
-      return null;
-    } finally {
-      if (btn) btn.disabled = false;
-    }
-}
-window.actualizarResumenDashboardGeneral = actualizarResumenDashboardGeneral;
-
-let _resumenIncidenciasDashboardData = [];
-
-async function actualizarResumenIncidenciasDashboard() {
-    const status = document.getElementById("incSummaryStatus");
-    const button = document.getElementById("btnActualizarResumenIncidencias");
-    if (status) status.textContent = "Consultando incidencias en la base de datos…";
-    if (button) button.disabled = true;
-    try {
-        const data = await cargarIncidenciasGestion();
-        _resumenIncidenciasDashboardData = Array.isArray(data?.incidencias) ? data.incidencias : [];
-        actualizarOpcionesFiltroResumenIncidencias();
-        renderResumenIncidenciasDashboard();
-        if (status) status.textContent = "Incidencias actualizadas desde la base de datos: " +
-            _resumenIncidenciasDashboardData.length.toLocaleString("es-ES") + ".";
-        return data;
-    } catch (e) {
-        if (status) status.textContent = "No se pudieron cargar las incidencias. Comprueba la sesión y vuelve a intentarlo.";
-        console.warn("Dashboard: error al cargar resumen de incidencias", e);
-        return null;
-    } finally {
-        if (button) button.disabled = false;
-    }
-}
-
-function actualizarOpcionesFiltroResumenIncidencias() {
-    const empresa = document.getElementById("incSummaryEmpresa");
-    const provincia = document.getElementById("incSummaryProvincia");
-    const llenar = (select, valores, etiqueta) => {
-        if (!select) return;
-        const anterior = select.value;
-        const unicos = [...new Set(valores.map(v => String(v || "").trim()).filter(Boolean))]
-            .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
-        select.replaceChildren();
-        const todos = document.createElement("option");
-        todos.value = "";
-        todos.textContent = etiqueta;
-        select.appendChild(todos);
-        unicos.forEach(valor => {
-            const opt = document.createElement("option");
-            opt.value = valor;
-            opt.textContent = valor;
-            select.appendChild(opt);
-        });
-        if (unicos.includes(anterior)) select.value = anterior;
-    };
-    llenar(empresa, _resumenIncidenciasDashboardData.map(x => x.auditoria?.empresa), "Todas las empresas");
-    llenar(provincia, _resumenIncidenciasDashboardData.map(x => x.auditoria?.provincia), "Todas las provincias");
-}
-
-function renderResumenIncidenciasDashboard() {
-    const host = document.getElementById("incSummaryKpis");
-    if (!host) return;
-    const empresa = document.getElementById("incSummaryEmpresa")?.value || "";
-    const provincia = document.getElementById("incSummaryProvincia")?.value || "";
-    const norm = v => String(v || "").trim().toLocaleLowerCase("es");
-    const filas = _resumenIncidenciasDashboardData.filter(x =>
-        (!empresa || norm(x.auditoria?.empresa) === norm(empresa)) &&
-        (!provincia || norm(x.auditoria?.provincia) === norm(provincia))
-    );
-    const estado = x => String(x.estado || "ABIERTA").trim().toUpperCase();
-    const indicadores = [["Abiertas", filas.filter(x => estado(x) === "ABIERTA").length], ["En proceso", filas.filter(x => estado(x) === "EN PROCESO").length], ["Pendientes de evidencias", filas.filter(x => estado(x) === "PENDIENTE DE EVIDENCIAS").length], ["Cerradas", filas.filter(x => estado(x) === "CERRADA").length]];
-    host.replaceChildren();
-    indicadores.forEach(([titulo, valor]) => { const tarjeta=document.createElement("div"); tarjeta.className="inc-summary-kpi"; const etiqueta=document.createElement("span"); etiqueta.textContent=titulo; const numero=document.createElement("strong"); numero.textContent=Number(valor).toLocaleString("es-ES"); tarjeta.append(etiqueta,numero); host.appendChild(tarjeta); });
-    const tabla=document.getElementById("incSummaryFollowupTable"), contador=document.getElementById("incSummaryFollowupCount");
-    const activas=filas.filter(x=>estado(x)!=="CERRADA");
-    const parseDate=value=>{const m=String(value||"").trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);if(!m)return null;const d=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));return Number.isNaN(d.getTime())?null:d;};
-    const hoy=new Date();hoy.setHours(0,0,0,0);
-    const prioridad=x=>{const fecha=parseDate(x.fechaPrevista);if(!fecha)return{orden:2,texto:"SIN FECHA",clase:"inc-priority-no-date",dias:null};const dias=Math.round((fecha.getTime()-hoy.getTime())/86400000);if(dias<0)return{orden:0,texto:"VENCIDA",clase:"inc-priority-overdue",dias};if(dias<=7)return{orden:1,texto:dias===0?"VENCE HOY":"PRÓXIMA",clase:"inc-priority-soon",dias};return{orden:3,texto:"EN PLAZO",clase:"inc-priority-normal",dias};};
-    activas.sort((a,b)=>{const pa=prioridad(a),pb=prioridad(b);if(pa.orden!==pb.orden)return pa.orden-pb.orden;if(pa.dias!==null&&pb.dias!==null&&pa.dias!==pb.dias)return pa.dias-pb.dias;return String(a.fechaIncidencia||"").localeCompare(String(b.fechaIncidencia||""));});
-    if(contador)contador.textContent=activas.length.toLocaleString("es-ES")+" pendientes";
-    if(tabla){tabla.replaceChildren();if(!activas.length){const tr=document.createElement("tr"),td=document.createElement("td");td.colSpan=6;td.className="inc-followup-empty";td.textContent="No hay incidencias activas para los filtros seleccionados.";tr.appendChild(td);tabla.appendChild(tr);}else activas.forEach(x=>{
-      const p=prioridad(x),tr=document.createElement("tr"),tdP=document.createElement("td"),badge=document.createElement("span");badge.className="inc-priority "+p.clase;badge.textContent=p.texto;tdP.appendChild(badge);
-      const tdI=document.createElement("td"),abrir=document.createElement("button");abrir.type="button";abrir.className="inc-followup-open";abrir.textContent=String(x.id||"Sin ID");abrir.addEventListener("click",async()=>{await abrirGestionIncidencias();if(typeof abrirDetalleIncidenciaGestion==="function")abrirDetalleIncidenciaGestion(x.id);});
-      const subI=document.createElement("span");subI.className="inc-followup-small";subI.textContent=[x.auditoria?.proyecto||"",x.modulo||"",x.control||""].filter(Boolean).join(" · ")||"Sin proyecto/control";tdI.append(abrir,subI);
-      const tdE=document.createElement("td");tdE.textContent=x.auditoria?.empresa||"Sin empresa";const subP=document.createElement("span");subP.className="inc-followup-small";subP.textContent=x.auditoria?.provincia||"Sin provincia";tdE.appendChild(subP);
-      const tdS=document.createElement("td");tdS.textContent=estado(x);const tdR=document.createElement("td");tdR.textContent=String(x.responsable||"").trim()||"Sin asignar";const tdF=document.createElement("td");tdF.textContent=String(x.fechaPrevista||"").trim()||"Sin fecha";
-      if(p.dias!==null&&p.dias<0){const a=document.createElement("span");a.className="inc-followup-small";a.textContent="Retraso: "+Math.abs(p.dias)+" día(s)";tdF.appendChild(a);}else if(p.dias!==null&&p.dias<=7){const a=document.createElement("span");a.className="inc-followup-small";a.textContent=p.dias===0?"Vence hoy":"Quedan "+p.dias+" día(s)";tdF.appendChild(a);}
-      tr.append(tdP,tdI,tdE,tdS,tdR,tdF);tabla.appendChild(tr);
-    });}
-    const status=document.getElementById("incSummaryStatus");if(status)status.textContent="Mostrando "+filas.length.toLocaleString("es-ES")+" de "+_resumenIncidenciasDashboardData.length.toLocaleString("es-ES")+" incidencias según los filtros seleccionados.";
-}
-window.actualizarResumenIncidenciasDashboard = actualizarResumenIncidenciasDashboard;
 
 let _gestionIncidenciasData = [];
 let _gestionIncidenciasFiltros = {estado:'',empresa:'',proyecto:'',provincia:'',responsable:'',buscar:''};
@@ -12508,7 +12034,7 @@ function renderGestionIncidencias(d){
 function aplicarFiltrosIncidenciasGestion(){const g=id=>document.getElementById(id);_gestionIncidenciasFiltros={estado:g('incFiltroEstado')?.value||'',empresa:g('incFiltroEmpresa')?.value||'',proyecto:g('incFiltroProyecto')?.value||'',provincia:g('incFiltroProvincia')?.value||'',responsable:g('incFiltroResponsable')?.value||'',buscar:g('incFiltroBuscar')?.value||''}; const sec=document.getElementById('gestionIncidencias'); if(sec){const d={incidencias:_gestionIncidenciasData,abiertas:_gestionIncidenciasData.filter(x=>x.estado==='ABIERTA').length,enProceso:_gestionIncidenciasData.filter(x=>x.estado==='EN PROCESO').length,pendientesEvidencias:_gestionIncidenciasData.filter(x=>x.estado==='PENDIENTE DE EVIDENCIAS').length,cerradas:_gestionIncidenciasData.filter(x=>x.estado==='CERRADA').length};sec.innerHTML=renderGestionIncidencias(d);['incFiltroEstado','incFiltroEmpresa','incFiltroProyecto','incFiltroProvincia','incFiltroResponsable','incFiltroBuscar'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=_gestionIncidenciasFiltros[id.replace('incFiltro','').replace('Estado','estado').replace('Empresa','empresa').replace('Proyecto','proyecto').replace('Provincia','provincia').replace('Responsable','responsable').replace('Buscar','buscar')]||'';});}}
 async function abrirGestionIncidencias(){const sec=document.getElementById('gestionIncidencias');if(!sec)return;sec.innerHTML='<div class="card"><h2>Gestión de incidencias</h2><p>Cargando…</p></div>';mostrarPantalla('gestionIncidencias');try{const d=await cargarIncidenciasGestion();sec.innerHTML=renderGestionIncidencias(d);const b=document.getElementById('gestionIncidenciasBadge');if(b)b.textContent=Number(d.abiertas||0)+' abiertas';}catch(e){sec.innerHTML=`<div class="card"><h3>No se pudieron cargar las incidencias</h3><p>${escInc(e.message||e)}</p><button class="secondary-button" onclick="abrirGestionIncidencias()">Reintentar</button></div>`;}}
 function buscarIncidenciaGestion(id){return _gestionIncidenciasData.find(x=>String(x.id)===String(id));}
-function abrirDetalleIncidenciaGestion(id){const x=buscarIncidenciaGestion(id);if(!x)return;const sec=document.getElementById('gestionIncidencias');sec.innerHTML=`<div class="dashboard-header"><div><h2>Incidencia ${escInc(x.id)}</h2><p>Auditoría ${escInc(x.idAuditoria)} · ${escInc(x.auditoria?.fecha||'')}</p></div><button type="button" class="secondary-button" onclick="abrirGestionIncidencias()">← Incidencias</button></div><div class="card"><div class="inc-detail-grid"><div><b>Proyecto</b><div>${escInc(x.auditoria?.proyecto||'-')}</div></div><div><b>Empresa</b><div>${escInc(x.auditoria?.empresa||'-')}</div></div><div><b>Provincia</b><div>${escInc(x.auditoria?.provincia||'-')}</div></div><div><b>Trabajador</b><div>${escInc(x.auditoria?.trabajador||'-')} ${escInc(x.auditoria?.dni||'')}</div></div><div><b>Módulo</b><div>${escInc(x.modulo)}</div></div><div><b>Control</b><div>${escInc(x.control)}</div></div><div class="full"><b>Incumplimiento</b><div>${escInc(x.descripcion)}</div></div><div class="full"><b>Medida correctora</b><div>${escInc(x.medida||'-')}</div></div><div><label>Responsable de cierre<input id="incDetalleResponsable" value="${escInc(x.responsable)}"></label></div><div><label>Fecha prevista de cierre<input id="incDetalleFechaPrevista" type="date" value="${escInc(x.fechaPrevista)}"></label></div><div><label>Estado<select id="incDetalleEstado"><option>ABIERTA</option><option>EN PROCESO</option><option>PENDIENTE DE EVIDENCIAS</option><option>CERRADA</option></select></label></div><div><label>Fecha de cierre<input id="incDetalleFechaCierre" type="date" value="${escInc(x.fechaCierre)}"></label></div><div class="full"><label>Observaciones de cierre<textarea id="incDetalleObservaciones" rows="4">${escInc(x.observacionesCierre)}</textarea></label></div><div><label>Verificador del cierre<input id="incDetalleVerificador" value="${escInc(x.verificador)}"></label></div></div><div style="margin-top:14px" class="inc-actions"><button class="primary-button" type="button" onclick="guardarGestionIncidencia('${escInc(x.id)}')">💾 Guardar cambios</button><button class="secondary-button" type="button" onclick="cerrarGestionIncidencia('${escInc(x.id)}')">✓ Cerrar incidencia</button></div></div><div class="card"><h3>Evidencias</h3><p class="inc-small">Las evidencias quedan vinculadas a esta incidencia y se almacenan en Drive. Se admiten fotografías y documentos.</p><div class="inc-actions"><label class="primary-button" style="display:inline-block;cursor:pointer">🖼️ Elegir fotos del dispositivo<input id="incEvidFotos" type="file" accept="image/*" multiple style="display:none" onchange="subirEvidenciasIncidencia('${escInc(x.id)}','FOTOGRAFIA',this.files)"></label><label class="secondary-button" style="display:inline-block;cursor:pointer">📷 Abrir cámara<input id="incEvidFotosCamara" type="file" accept="image/*" capture="environment" style="display:none" onchange="subirEvidenciasIncidencia('${escInc(x.id)}','FOTOGRAFIA',this.files)"></label><label class="secondary-button" style="display:inline-block;cursor:pointer">📄 Añadir documentos<input id="incEvidDocs" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.txt" multiple style="display:none" onchange="subirEvidenciasIncidencia('${escInc(x.id)}','DOCUMENTO',this.files)"></label></div><div id="incEvidenciasHost" class="inc-evidence-grid" style="margin-top:12px">${renderEvidenciasIncidencia(x.evidencias||[])}</div></div>`;document.getElementById('incDetalleEstado').value=x.estado;}
+function abrirDetalleIncidenciaGestion(id){const x=buscarIncidenciaGestion(id);if(!x)return;const sec=document.getElementById('gestionIncidencias');sec.innerHTML=`<div class="dashboard-header"><div><h2>Incidencia ${escInc(x.id)}</h2><p>Auditoría ${escInc(x.idAuditoria)} · ${escInc(x.auditoria?.fecha||'')}</p></div><button type="button" class="secondary-button" onclick="abrirGestionIncidencias()">← Incidencias</button></div><div class="card"><div class="inc-detail-grid"><div><b>Proyecto</b><div>${escInc(x.auditoria?.proyecto||'-')}</div></div><div><b>Empresa</b><div>${escInc(x.auditoria?.empresa||'-')}</div></div><div><b>Provincia</b><div>${escInc(x.auditoria?.provincia||'-')}</div></div><div><b>Trabajador</b><div>${escInc(x.auditoria?.trabajador||'-')} ${escInc(x.auditoria?.dni||'')}</div></div><div><b>Módulo</b><div>${escInc(x.modulo)}</div></div><div><b>Control</b><div>${escInc(x.control)}</div></div><div class="full"><b>Incumplimiento</b><div>${escInc(x.descripcion)}</div></div><div class="full"><b>Medida correctora</b><div>${escInc(x.medida||'-')}</div></div><div><label>Responsable de cierre<input id="incDetalleResponsable" value="${escInc(x.responsable)}"></label></div><div><label>Fecha prevista de cierre<input id="incDetalleFechaPrevista" type="date" value="${escInc(x.fechaPrevista)}"></label></div><div><label>Estado<select id="incDetalleEstado"><option>ABIERTA</option><option>EN PROCESO</option><option>PENDIENTE DE EVIDENCIAS</option><option>CERRADA</option></select></label></div><div><label>Fecha de cierre<input id="incDetalleFechaCierre" type="date" value="${escInc(x.fechaCierre)}"></label></div><div class="full"><label>Observaciones de cierre<textarea id="incDetalleObservaciones" rows="4">${escInc(x.observacionesCierre)}</textarea></label></div><div><label>Verificador del cierre<input id="incDetalleVerificador" value="${escInc(x.verificador)}"></label></div></div><div style="margin-top:14px" class="inc-actions"><button class="primary-button" type="button" onclick="guardarGestionIncidencia('${escInc(x.id)}')">💾 Guardar cambios</button><button class="secondary-button" type="button" onclick="cerrarGestionIncidencia('${escInc(x.id)}')">✓ Cerrar incidencia</button></div></div><div class="card"><h3>Evidencias</h3><p class="inc-small">Las evidencias quedan vinculadas a esta incidencia y se almacenan en Drive. Se admiten fotografías y documentos.</p><div class="inc-actions"><label class="primary-button" style="display:inline-block;cursor:pointer">📷 Añadir fotografías<input id="incEvidFotos" type="file" accept="image/*" capture="environment" multiple style="display:none" onchange="subirEvidenciasIncidencia('${escInc(x.id)}','FOTOGRAFIA',this.files)"></label><label class="secondary-button" style="display:inline-block;cursor:pointer">📄 Añadir documentos<input id="incEvidDocs" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.txt" multiple style="display:none" onchange="subirEvidenciasIncidencia('${escInc(x.id)}','DOCUMENTO',this.files)"></label></div><div id="incEvidenciasHost" class="inc-evidence-grid" style="margin-top:12px">${renderEvidenciasIncidencia(x.evidencias||[])}</div></div>`;document.getElementById('incDetalleEstado').value=x.estado;}
 function renderEvidenciasIncidencia(ev){return (ev||[]).map(e=>`<div class="inc-evidence-card">${String(e.tipo)==='FOTOGRAFIA'?`<img src="${escInc(e.url)}" alt="Evidencia">`:'📄'}<div><b>${escInc(e.nombre)}</b></div><div class="inc-small">${escInc(e.fecha||'')} · ${escInc(e.tipo)}</div><a href="${escInc(e.url)}" target="_blank" rel="noopener">Abrir evidencia</a></div>`).join('')||'<div class="inc-small">No hay evidencias todavía.</div>';}
 async function guardarGestionIncidencia(id,forzarCierre){const x=buscarIncidenciaGestion(id);if(!x)return;const estado=document.getElementById('incDetalleEstado').value;const responsable=document.getElementById('incDetalleResponsable').value.trim();const fechaPrevista=document.getElementById('incDetalleFechaPrevista').value;const fechaCierre=document.getElementById('incDetalleFechaCierre').value;const observaciones=document.getElementById('incDetalleObservaciones').value;const verificador=document.getElementById('incDetalleVerificador').value.trim();if((forzarCierre||estado==='CERRADA')&&!responsable){alert('Indique el responsable de cierre antes de cerrar la incidencia.');return;}if(estado==='PENDIENTE DE EVIDENCIAS' && Number(x.evidencias?.length||0)>0){alert('Esta incidencia ya tiene evidencias. Cambie el estado a EN PROCESO o CERRADA.');return;}let confirmarCierreSinEvidencia='';if(forzarCierre||estado==='CERRADA'){const n=Number(x.evidencias?.length||0);if(n===0){const ok=confirm('Esta incidencia no tiene evidencias asociadas. ¿Desea cerrarla SIN evidencia?');if(!ok)return;confirmarCierreSinEvidencia='SI';}}try{await appGasPost({accion:'actualizarIncidencia',incidenciaId:id,estado:forzarCierre?'CERRADA':estado,responsable,fechaPrevista,fechaCierre:forzarCierre?(fechaCierre||new Date().toISOString().slice(0,10)):fechaCierre,observacionesCierre:observaciones,verificador,confirmarCierreSinEvidencia});alert('Incidencia actualizada correctamente.');await abrirGestionIncidencias();}catch(e){alert('No se pudo actualizar la incidencia: '+(e.message||e));}}
 function cerrarGestionIncidencia(id){guardarGestionIncidencia(id,true);}
@@ -12516,9 +12042,7 @@ function fileToDataUrlInc(file){return new Promise((res,rej)=>{const rd=new File
 async function subirEvidenciasIncidencia(id,tipo,files){const x=buscarIncidenciaGestion(id);if(!x)return;const lista=Array.from(files||[]);if(!lista.length)return;let ok=0;for(const file of lista){try{const dataUrl=await fileToDataUrlInc(file);await appGasPost({accion:'guardarEvidenciaIncidencia',incidenciaId:id,auditoriaId:x.idAuditoria,tipo,nombreSugerido:file.name,dataUrl});ok++;}catch(e){console.error(e);alert('No se pudo subir '+file.name+': '+(e.message||e));}}try{const d=await cargarIncidenciasGestion();const nuevo=d.incidencias.find(i=>String(i.id)===String(id));if(nuevo)abrirDetalleIncidenciaGestion(id);alert(ok+' evidencia(s) subida(s) correctamente.');}catch(e){alert(ok+' evidencia(s) subida(s). No se pudo refrescar la lista.');}}
 
 function abrirAuditoriaVehiculosDesdeInicio() {
-    // No se reinicia ni se borra la auditoría existente. Recupera datos de Campo
-    // solo cuando Vehículos/Equipos todavía no tiene esos campos cumplimentados.
-    sincronizarDatosCampoEnVehiculos(true);
+    // No se reinicia ni se borra la auditoría existente.
     mostrarPantalla("datosGenerales");
     inicializarCampoDniNie();
     instalarBotonMenuInicialVehiculos();
@@ -12631,75 +12155,6 @@ function sincronizarDatosVehiculosEnCampo() {
     }
 }
 
-function sincronizarDatosCampoEnVehiculos(soloSiVacio = false) {
-    if (!auditoria || !auditoria.datosGenerales || !auditoriaCampo || !auditoriaCampo.datos) return;
-    const d = auditoriaCampo.datos;
-    const dg = auditoria.datosGenerales;
-    dg.localizacion = dg.localizacion || {};
-    const trabajadores = Array.isArray(auditoriaCampo.trabajadores) ? auditoriaCampo.trabajadores : [];
-    const principal = trabajadores.find(t => String(t.nombre || '').trim()) || {};
-    const valores = {
-        fecha: d.fecha,
-        horaInicio: d.horaInicio,
-        auditor: d.auditor,
-        tipoPersonal: d.tipoPersonal,
-        actividad: d.actividad,
-        actividadOtra: d.actividadOtra,
-        empresa: d.empresa,
-        proyecto: d.proyecto,
-        trabajador: d.trabajador || principal.nombre,
-        dniNie: d.dniNie || principal.dni,
-        'localizacion.direccion': d.direccion,
-        'localizacion.poblacion': d.localizacion && d.localizacion.poblacion,
-        'localizacion.provincia': d.localizacion && d.localizacion.provincia,
-        'localizacion.codigoPostal': d.localizacion && d.localizacion.codigoPostal
-    };
-    const ids = {
-        fecha: 'fechaAuditoria', horaInicio: 'horaInicio', auditor: 'auditor',
-        tipoPersonal: 'tipoPersonal', actividad: 'actividad', actividadOtra: 'actividadOtra',
-        empresa: 'empresa', proyecto: 'proyecto', trabajador: 'trabajador', dniNie: 'dniNieTrabajador',
-        'localizacion.direccion': 'direccion', 'localizacion.poblacion': 'poblacion',
-        'localizacion.provincia': 'provincia', 'localizacion.codigoPostal': 'codigoPostal'
-    };
-    Object.entries(valores).forEach(([clave, valor]) => {
-        const texto = String(valor == null ? '' : valor).trim();
-        if (!texto) return; // No borrar datos existentes por campos de Campo vacíos.
-        const partes = clave.split('.');
-        const objeto = partes.length === 2 ? (dg[partes[0]] = dg[partes[0]] || {}) : dg;
-        const propiedad = partes[partes.length - 1];
-        const existente = String(objeto[propiedad] == null ? '' : objeto[propiedad]).trim();
-        if (soloSiVacio && existente) return;
-        objeto[propiedad] = valor;
-        const input = document.getElementById(ids[clave]);
-        if (input && (!soloSiVacio || !existente)) input.value = String(valor);
-    });
-}
-
-function prepararAuditoriaCampoRecuperada(datos) {
-    if (!datos || typeof datos !== 'object') throw new Error('La BBDD no devolvió una auditoría de Campo válida.');
-    const recuperada = JSON.parse(JSON.stringify(datos));
-    recuperada.id = String(recuperada.id || generarIdAuditoriaCampo());
-    recuperada.estado = recuperada.estado || 'FINALIZADA';
-    recuperada.datos = Object.assign({
-        fecha: '', horaInicio: '', auditor: '', auditorCargo: '', tipoPersonal: '', actividad: '',
-        actividadOtra: '', empresa: '', proyecto: '', trabajador: '', dniNie: '', obra: '', direccion: '',
-        cliente: '', trabajosRiesgoEspecial: '', localizacion: {tipo:'', poblacion:'', provincia:'', codigoPostal:'', latitud:null, longitud:null}
-    }, recuperada.datos || recuperada.datosGenerales || {});
-    recuperada.datos.localizacion = Object.assign({tipo:'', poblacion:'', provincia:'', codigoPostal:'', latitud:null, longitud:null}, recuperada.datos.localizacion || {});
-    recuperada.trabajadores = Array.isArray(recuperada.trabajadores) ? recuperada.trabajadores : [];
-    recuperada.comprobaciones = recuperada.comprobaciones && typeof recuperada.comprobaciones === 'object' ? recuperada.comprobaciones : {};
-    recuperada.incidencias = Array.isArray(recuperada.incidencias) ? recuperada.incidencias : [];
-    recuperada.fotografias = Array.isArray(recuperada.fotografias) ? recuperada.fotografias : [];
-    recuperada.firmas = Object.assign({auditor:'', trabajador:''}, recuperada.firmas || {});
-    recuperada.observaciones = recuperada.observaciones || '';
-    auditoriaCampo = recuperada;
-    inicializarAuditoriaCampo();
-    // La recuperación de un histórico no debe sobrescribir una auditoría de
-    // Vehículos/Equipos que ya esté en curso; solo completa campos vacíos.
-    sincronizarDatosCampoEnVehiculos(true);
-    actualizarDashboardCampo();
-}
-
 function instalarBotonMenuInicialVehiculos() {
     const dashboard = document.getElementById("dashboard");
     if (!dashboard || document.getElementById("btnMenuInicialVehiculos")) return;
@@ -12795,8 +12250,6 @@ function guardarDatosCampoDesdeFormulario() {
     auditoriaCampo.datos.localizacion.provincia = val("campoProvincia") || auditoriaCampo.datos.localizacion.provincia || "";
     auditoriaCampo.datos.localizacion.codigoPostal = val("campoCodigoPostal") || auditoriaCampo.datos.localizacion.codigoPostal || "";
     auditoriaCampo.estado = auditoriaCampo.estado === "FINALIZADA" ? "FINALIZADA" : "EN_CURSO";
-    // Guardado inmediato en memoria compartida: Campo -> Vehículos/Equipos.
-    sincronizarDatosCampoEnVehiculos(false);
     actualizarDashboardCampo();
 }
 
@@ -12945,20 +12398,11 @@ function renderModuloCampoChequeo() {
 
 function renderModuloCampoFotografias() {
     const fotos = auditoriaCampo.fotografias || [];
-    const slots = fotos.map((f,i)=>`<div class="campo-foto-card"><div class="campo-foto-head"><strong>Fotografía ${i+1}</strong><button type="button" class="btn-secondary" onclick="eliminarFotoCampo(${i})">Eliminar</button></div>${f.dataUrl?`<img src="${f.dataUrl}" alt="Fotografía ${i+1}">`:""}<div class="inc-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0"><button type="button" class="btn-secondary" onclick="seleccionarFotoCampo(${i},false)">🖼️ Elegir imagen del dispositivo</button><button type="button" class="btn-secondary" onclick="seleccionarFotoCampo(${i},true)">📷 Abrir cámara</button></div><textarea placeholder="Descripción / ubicación / observación (opcional)" oninput="auditoriaCampo.fotografias[${i}].descripcion=this.value">${campoEsc(f.descripcion||"")}</textarea></div>`).join("");
-    return `<div class="card"><p>Para cada fotografía puedes elegir una imagen existente en el dispositivo o abrir la cámara para tomarla en el momento.</p><button type="button" class="primary-button" onclick="agregarFotoCampo()">+ Añadir fotografía</button></div><div class="campo-fotos-grid">${slots || '<div class="card">No hay fotografías todavía.</div>'}</div>`;
+    const slots = fotos.map((f,i)=>`<div class="campo-foto-card"><div class="campo-foto-head"><strong>Fotografía ${i+1}</strong><button type="button" class="btn-secondary" onclick="eliminarFotoCampo(${i})">Eliminar</button></div>${f.dataUrl?`<img src="${f.dataUrl}" alt="Fotografía ${i+1}">`:""}<input type="file" accept="image/*" capture="environment" onchange="cargarFotoCampo(event,${i})"><textarea placeholder="Descripción / ubicación / observación (opcional)" oninput="auditoriaCampo.fotografias[${i}].descripcion=this.value">${campoEsc(f.descripcion||"")}</textarea></div>`).join("");
+    return `<div class="card"><p>Se pueden incorporar varias fotografías de campo. En móvil el control puede abrir directamente la cámara.</p><button type="button" class="primary-button" onclick="agregarFotoCampo()">+ Añadir fotografía</button></div><div class="campo-fotos-grid">${slots || '<div class="card">No hay fotografías todavía.</div>'}</div>`;
 }
 function agregarFotoCampo(){ auditoriaCampo.fotografias.push({dataUrl:"",descripcion:""}); abrirModuloCampo("fotografias"); }
 function eliminarFotoCampo(i){ auditoriaCampo.fotografias.splice(i,1); abrirModuloCampo("fotografias"); }
-function seleccionarFotoCampo(i,usarCamara){
-    if(!auditoriaCampo.fotografias[i])return;
-    seleccionarFotografiaEnMemoria(function(foto){
-        auditoriaCampo.fotografias[i].dataUrl=foto.dataUrl;
-        auditoriaCampo.fotografias[i].nombreArchivo=foto.nombreArchivo||"fotografia.jpg";
-        auditoriaCampo.fotografias[i].fecha=foto.fecha||new Date().toISOString();
-        abrirModuloCampo("fotografias");
-    }, usarCamara === true);
-}
 function cargarFotoCampo(ev,i){ const file=ev.target.files && ev.target.files[0]; if(!file)return; if(file.size>8*1024*1024){alert("La fotografía supera 8 MB.");return;} const reader=new FileReader(); reader.onload=()=>{auditoriaCampo.fotografias[i].dataUrl=reader.result; abrirModuloCampo("fotografias");}; reader.readAsDataURL(file); }
 
 function configurarFirmasCampo() {
@@ -12990,7 +12434,7 @@ function renderIncidenciasCampo(){
       ${lista.length?lista.map((inc,i)=>`<div class="incidencia-campo-item" style="border:1px solid #d5d5d5;border-radius:8px;padding:10px;margin:8px 0"><strong>${i+1}. ${campoEsc(inc.apartadoTexto||inc.apartado||"")}</strong><p style="white-space:pre-wrap">${campoEsc(inc.descripcion||"")}</p>${(inc.fotografias||[]).map((f,j)=>`<img src="${f.dataUrl}" alt="Foto incidencia ${i+1}" style="width:90px;height:70px;object-fit:cover;margin:3px;border-radius:4px">`).join("")}<div><button type="button" class="btn-secondary" onclick="eliminarIncidenciaCampo(${i})">Eliminar incidencia</button></div></div>`).join(""):'<p>No hay incidencias añadidas.</p>'}
       <h4>Añadir incidencia</h4><div class="field"><label for="incidenciaCampoApartado">Punto del chequeo de seguridad</label><select id="incidenciaCampoApartado"><option value="">Seleccionar apartado…</option>${opciones}</select></div>
       <div class="field"><label for="incidenciaCampoDescripcion">Descripción / comentarios</label><textarea id="incidenciaCampoDescripcion" rows="3" placeholder="Describe la incidencia detectada"></textarea></div>
-      <div class="field"><label>Fotografías de la incidencia</label><div class="inc-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin:6px 0"><label class="btn-secondary" style="display:inline-block;cursor:pointer">🖼️ Elegir imágenes del dispositivo<input id="incidenciaCampoFotos" type="file" accept="image/*" multiple style="display:none" onchange="prepararFotosIncidenciaCampo(this)"></label><label class="btn-secondary" style="display:inline-block;cursor:pointer">📷 Abrir cámara<input id="incidenciaCampoFotosCamara" type="file" accept="image/*" capture="environment" style="display:none" onchange="prepararFotosIncidenciaCampo(this)"></label></div><div id="previewFotosIncidenciaCampo" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div></div>
+      <div class="field"><label for="incidenciaCampoFotos">Fotografías de la incidencia</label><input id="incidenciaCampoFotos" type="file" accept="image/*" capture="environment" multiple onchange="prepararFotosIncidenciaCampo(this)"><div id="previewFotosIncidenciaCampo" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div></div>
       <button type="button" class="btn-primary" onclick="anadirIncidenciaCampo()">Añadir incidencia</button></div>`;
 }
 let fotosPendientesIncidenciaCampo=[];
@@ -13032,10 +12476,9 @@ function actualizarDashboardCampo(){
 function renderModuloCampoResumen(){
     const chk=estadoChequeoCampo(), f1=!!auditoriaCampo.firmas.auditor, f2=!!auditoriaCampo.firmas.trabajador;
     const no=[...Object.entries(auditoriaCampo.comprobaciones).filter(([,v])=>v.resultado==="NO").map(([id])=>id)];
-    const finalizada = auditoriaCampo.estado === "FINALIZADA";
     return `<div class="card"><h3>${campoEsc(auditoriaCampo.id)}</h3><p><strong>Obra:</strong> ${campoEsc(auditoriaCampo.datos.obra)} · <strong>Cliente:</strong> ${campoEsc(auditoriaCampo.datos.cliente)} · <strong>Fecha:</strong> ${campoEsc(auditoriaCampo.datos.fecha)}</p><p><strong>Trabajadores:</strong> ${auditoriaCampo.trabajadores.length} · <strong>Chequeos:</strong> ${chk.completadas}/${chk.total} · <strong>Respuestas NO:</strong> ${no.length}</p></div>
-    <div class="card"><strong>Estado:</strong> ${campoEsc(auditoriaCampo.estado)}<br><small>${finalizada ? "Auditoría finalizada y recuperada. Puede consultar los datos y generar una copia local del PDF." : "Para finalizar deben estar respondidos todos los puntos SI/NO/NA y existir las dos firmas."}</small></div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">${finalizada ? `<button type="button" class="secondary-button" onclick="generarPdfAuditoriaCampoLocal()">DESCARGAR PDF</button><button type="button" class="secondary-button" onclick="verPdfAuditoriaCampoLocal()">VER PDF</button>` : `<button type="button" class="primary-button" onclick="finalizarAuditoriaCampo()">FINALIZAR AUDITORÍA DE CAMPO</button><button type="button" class="secondary-button" onclick="generarPdfAuditoriaCampoLocal()">GENERAR PDF DE PRUEBA</button>`}<button type="button" class="secondary-button" onclick="abrirDashboardEstadisticas()">VOLVER A ESTADÍSTICAS</button></div>`;
+    <div class="card"><strong>Estado:</strong> ${campoEsc(auditoriaCampo.estado)}<br><small>Para finalizar deben estar respondidos todos los puntos SI/NO/NA y existir las dos firmas.</small></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><button type="button" class="primary-button" onclick="finalizarAuditoriaCampo()">FINALIZAR AUDITORÍA DE CAMPO</button><button type="button" class="secondary-button" onclick="generarPdfAuditoriaCampoLocal()">GENERAR PDF DE PRUEBA</button>${auditoriaCampo.estado==="FINALIZADA"?`<button type="button" class="secondary-button" onclick="verPdfAuditoriaCampoLocal()">VER PDF</button>`:""}</div>`;
 }
 
 function normalizarEmpresaAuditoriaCampo(){
@@ -13050,18 +12493,6 @@ function normalizarEmpresaAuditoriaCampo(){
     return empresa;
 }
 
-function descargarPdfAuditoriaCampo(blob, nombre) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = nombre || ((auditoriaCampo && auditoriaCampo.id) || 'AUDITORIA_CAMPO') + '_Chequeo_Condiciones_Seguridad_ZENER.pdf';
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-}
-
 async function finalizarAuditoriaCampo(){
     guardarDatosCampoDesdeFormulario();
     normalizarProyectoAntesDeGuardar();
@@ -13074,7 +12505,7 @@ async function finalizarAuditoriaCampo(){
     if(!auditoriaCampo.datos.fecha){alert("Debe indicar la fecha.");return;}
     if(!chk.completo){alert(`Faltan comprobaciones por responder: ${chk.total-chk.completadas}.`);return;}
     if(!auditoriaCampo.firmas.auditor||!auditoriaCampo.firmas.trabajador){alert("Faltan las dos firmas obligatorias: auditor y trabajador.");return;}
-    auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); await guardarBorradorLocal("CAMPO", false); actualizarDashboardCampo(); abrirModuloCampo("resumen");
+    auditoriaCampo.estado="FINALIZADA"; const d=new Date(); auditoriaCampo.fechaFinalizacion=d.toISOString().slice(0,10); auditoriaCampo.horaFinalizacion=d.toTimeString().slice(0,5); actualizarDashboardCampo(); abrirModuloCampo("resumen");
     let auditoriaGuardada = false;
     let fotosCampoGuardadas = 0;
     let fotosCampoTotales = 0;
@@ -13082,7 +12513,6 @@ async function finalizarAuditoriaCampo(){
     try {
         const syncCampo = await guardarAuditoriaYFotografias("CAMPO", auditoriaCampo);
         auditoriaGuardada = true;
-        if (!(syncCampo.erroresFotografias || []).length) await eliminarBorradorLocal("CAMPO", auditoriaCampo.id);
         fotosCampoGuardadas = syncCampo.fotografiasGuardadas;
         fotosCampoTotales = syncCampo.fotografiasTotales;
         erroresFotosCampo = syncCampo.erroresFotografias || [];
@@ -13091,33 +12521,22 @@ async function finalizarAuditoriaCampo(){
         return;
     }
 
-    let pdfCampoLocalDescargado = false;
-    let pdfCampoDriveGuardado = false;
-    let errorPdfCampoDrive = null;
     try {
-        const pdfCampo = await obtenerBlobPdfAuditoriaCampoLocal();
-        const nombrePdfCampo = (auditoriaCampo.id || "AUDITORIA_CAMPO") + "_Chequeo_Condiciones_Seguridad_ZENER.pdf";
-        // La descarga local no depende de que Drive responda correctamente.
-        descargarPdfAuditoriaCampo(pdfCampo.blob, nombrePdfCampo);
-        pdfCampoLocalDescargado = true;
-        try {
-            await guardarPdfEnDrive(pdfCampo.blob, auditoriaCampo.id, "CAMPO", nombrePdfCampo);
-            pdfCampoDriveGuardado = true;
-        } catch (eDrive) {
-            errorPdfCampoDrive = eDrive;
+        const pdfCampo=await obtenerBlobPdfAuditoriaCampoLocal();
+        await guardarPdfEnDrive(pdfCampo.blob,auditoriaCampo.id,"CAMPO",(auditoriaCampo.id||"AUDITORIA_CAMPO")+"_Chequeo_Condiciones_Seguridad_ZENER.pdf");
+        const avisoFotos = erroresFotosCampo.length
+            ? " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
+            : " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
+        alert("Auditoría de campo guardada correctamente en la BBDD." + avisoFotos + " PDF enviado a Informes. ID: "+auditoriaCampo.id);
+    } catch(e) {
+        if(auditoriaGuardada){
+            const avisoFotos = erroresFotosCampo.length
+                ? "Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
+                : "Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
+            alert("La auditoría de campo ha quedado guardada correctamente en la BBDD. " + avisoFotos + "\nPero el PDF no pudo confirmarse en la carpeta Informes.\n\n"+(e.message||e)+"\n\nLa auditoría NO se ha perdido.");
+        } else {
+            alert("No se pudo completar la sincronización.\n\n"+(e.message||e));
         }
-    } catch (ePdf) {
-        errorPdfCampoDrive = ePdf;
-    }
-    const avisoFotos = erroresFotosCampo.length
-        ? " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas (" + erroresFotosCampo.length + " con error)."
-        : " Fotografías: " + fotosCampoGuardadas + "/" + fotosCampoTotales + " guardadas.";
-    if (auditoriaGuardada && pdfCampoLocalDescargado && pdfCampoDriveGuardado) {
-        alert("Auditoría de campo guardada en BBDD y hoja de auditorías. PDF descargado en local y guardado en Drive; su enlace queda registrado en la hoja de documentos. " + avisoFotos + " ID: " + auditoriaCampo.id);
-    } else if (auditoriaGuardada && pdfCampoLocalDescargado) {
-        alert("Auditoría de campo guardada en BBDD y PDF descargado en local. No se pudo confirmar el guardado del PDF en Drive/hoja de documentos. " + (errorPdfCampoDrive && (errorPdfCampoDrive.message || errorPdfCampoDrive) || "") + " " + avisoFotos + " ID: " + auditoriaCampo.id);
-    } else if (auditoriaGuardada) {
-        alert("La auditoría de campo quedó guardada en BBDD, pero no se pudo generar o descargar el PDF. " + (errorPdfCampoDrive && (errorPdfCampoDrive.message || errorPdfCampoDrive) || "") + " " + avisoFotos + " ID: " + auditoriaCampo.id);
     }
     abrirDashboardEstadisticas();
 }
@@ -13214,16 +12633,10 @@ function crearPdfAuditoriaCampoLocal(){
 }
 
 (function inicializarSegundoDashboard(){
-    const init=async()=>{
-        instalarAutoguardadoLocal();
-        try { await restaurarBorradoresLocales(); } catch(e) { console.warn("No se pudieron recuperar todos los borradores locales", e); }
+    const init=()=>{
         instalarDashboardAuditoriasIndependientes();
         // Al entrar en la aplicación se muestra primero el selector de los dos tipos.
         mostrarPantalla("auditoriasInicio");
-        if (window._borradoresLocalesRecuperados.length) {
-            const lista = window._borradoresLocalesRecuperados.join(" y ");
-            setTimeout(() => alert("Se han recuperado borradores guardados en este navegador: " + lista + ". Puede continuar trabajando; no se han enviado todavía al backend."), 300);
-        }
     };
     if(document.readyState === "loading") document.addEventListener("DOMContentLoaded",init,{once:true}); else init();
 })();
@@ -13290,64 +12703,6 @@ function volverMenuPrincipalSeguro() {
     }
 }
 
-function establecerValorPorRuta(obj, ruta, valor) {
-    if (!obj || !ruta) return false;
-    const partes = String(ruta).replace(/\[(\d+)\]/g, ".$1").split(".").filter(Boolean);
-    let actual = obj;
-    for (let i = 0; i < partes.length - 1; i++) {
-        if (actual == null) return false;
-        actual = actual[partes[i]];
-    }
-    if (!actual || typeof actual !== "object") return false;
-    actual[partes[partes.length - 1]] = valor;
-    return true;
-}
-
-function asignarFotoHistoricaPorOrden(obj, fotos, indiceRef, nombreArray) {
-    if (!obj || typeof obj !== "object") return;
-    if (Array.isArray(obj)) {
-        obj.forEach(item => {
-            if (item && typeof item === "object" && /foto|imagen/i.test(nombreArray || "") && !item.dataUrl && indiceRef.i < fotos.length) {
-                item.dataUrl = fotos[indiceRef.i++].dataUrl;
-            } else asignarFotoHistoricaPorOrden(item, fotos, indiceRef, nombreArray);
-        });
-        return;
-    }
-    Object.keys(obj).forEach(k => {
-        if (k === "dataUrl" || k === "base64" || k === "imagen") return;
-        if (obj[k] && typeof obj[k] === "object") asignarFotoHistoricaPorOrden(obj[k], fotos, indiceRef, k);
-    });
-}
-
-async function rehidratarFotografiasAuditoriaRecuperada(recuperada) {
-    if (!recuperada || !recuperada.id) return {recuperadas:0, errores:0};
-    let listado;
-    try { listado = await appGasGet({accion:"obtenerFotografiasAuditoria", auditoriaId:String(recuperada.id)}); }
-    catch (e) { console.warn("No se pudieron consultar las fotografías de la auditoría:", e); return {recuperadas:0, errores:1}; }
-    const registros = Array.isArray(listado.fotografias) ? listado.fotografias : [];
-    if (!registros.length) return {recuperadas:0, errores:0};
-    const cargadas = [];
-    let errores = 0;
-    // Descarga secuencial para evitar saturar Apps Script y el navegador con
-    // varias imágenes grandes en paralelo.
-    for (const reg of registros) {
-        try {
-            const foto = await appGasGet({accion:"obtenerFotografiaAuditoria", auditoriaId:String(recuperada.id), fileId:String(reg.fileId || "")});
-            if (foto && foto.dataUrl) cargadas.push(Object.assign({}, reg, {dataUrl:foto.dataUrl}));
-            else errores++;
-        } catch (e) { errores++; console.warn("No se pudo recuperar una fotografía:", reg.nombre, e); }
-    }
-    const conRuta = cargadas.filter(f => f.ruta);
-    conRuta.forEach(f => {
-        if (!establecerValorPorRuta(recuperada, f.ruta, f.dataUrl)) console.warn("Ruta de fotografía no localizada en la auditoría:", f.ruta);
-    });
-    // Compatibilidad con registros anteriores que no almacenaban la ruta del
-    // campo. Se recuperan en el orden original de guardado, solo en arrays de fotos.
-    const sinRuta = cargadas.filter(f => !f.ruta && f.clase !== "FIRMA");
-    if (sinRuta.length) asignarFotoHistoricaPorOrden(recuperada, sinRuta, {i:0}, "");
-    return {recuperadas:cargadas.length, errores};
-}
-
 async function abrirAuditoriaRecuperada(id) {
     const auditoriaId = String(id || "").trim();
     if (!auditoriaId) {
@@ -13372,28 +12727,14 @@ async function abrirAuditoriaRecuperada(id) {
             throw new Error((data && data.error) || "La BBDD no devolvió la auditoría solicitada.");
         }
 
-        const recuperada = data.auditoria;
-        const resultadoFotos = await rehidratarFotografiasAuditoriaRecuperada(recuperada);
-        const esCampo = String(recuperada.tipoAuditoria || recuperada.tipo || '').toUpperCase() === 'CAMPO'
-            || (recuperada.datos && recuperada.comprobaciones && /^AC-/i.test(String(recuperada.id || auditoriaId)));
-        if (esCampo) {
-            prepararAuditoriaCampoRecuperada(recuperada);
-            window._auditoriaRecuperada = true;
-            _recuperacionAuditoriaEnCurso = false;
-            try { actualizarDashboardCampo(); } catch (e) { console.warn("Dashboard Campo tras recuperación:", e); }
-            mostrarPantalla("dashboardCampo");
-            alert("Auditoría de Campo " + auditoriaId + " recuperada correctamente desde la BBDD. Fotografías y firmas recuperadas: " + resultadoFotos.recuperadas + (resultadoFotos.errores ? "; errores al recuperar: " + resultadoFotos.errores : "") + ".");
-            return true;
-        }
-
-        prepararAuditoriaRecuperada(recuperada);
+        prepararAuditoriaRecuperada(data.auditoria);
         window._auditoriaRecuperada = true;
         _recuperacionAuditoriaEnCurso = false;
 
         try { actualizarDashboard(); } catch (e) { console.warn("Dashboard tras recuperación:", e); }
         try { instalarBotonMenuInicialVehiculos(); } catch (e) { console.warn("Botón menú inicial tras recuperación:", e); }
         mostrarPantalla("dashboard");
-        alert("Auditoría " + auditoriaId + " recuperada correctamente desde la BBDD. Fotografías y firmas recuperadas: " + resultadoFotos.recuperadas + (resultadoFotos.errores ? "; errores al recuperar: " + resultadoFotos.errores : "") + ".");
+        alert("Auditoría " + auditoriaId + " recuperada correctamente desde la BBDD.");
         return true;
     } catch (e) {
         console.error("Error recuperando auditoría:", e);
@@ -13502,12 +12843,22 @@ async function generarDocumentoOficialRevisionEpi(claveEpi, idUnidad) {
         doc.text("Fabricante: "+String(config.fabricanteNombre||campos.marca||"")+"   ·   Plantilla: "+String(config.plantillaClave||""),M,y); y+=5;
         doc.text("Norma: "+String(config.norma||"")+"   ·   Fecha revisión: "+String(revision.fechaRevision||obtenerFechaActual()),M,y); y+=8;
         const datos=[['Marca',campos.marca||'' ],['Modelo',campos.modelo||''],['Nº serie',campos.numeroSerie||campos.serie||''],['Fecha fabricación',campos.fechaFabricacion||''],['Verificado por',revision.verificadoPor||auditoria.datosGenerales.auditor||'']];
+        if (config.fabricanteConfigurado === "CLIMAX" || config.fabricanteNombre === "CLIMAX") {
+            datos.push(['Artículo', campos.articulo || definicion.nombre || '']);
+            datos.push(['Referencia', campos.referencia || campos.modelo || '']);
+            datos.push(['Nombre del usuario', auditoria.datosGenerales.trabajador || auditoria.datosGenerales.nombreTrabajador || '']);
+            datos.push(['Fecha de compra', campos.fechaCompra || '']);
+            datos.push(['Fecha puesta en servicio', campos.fechaPuestaServicio || '']);
+            datos.push(['Año de fabricación', campos.anioFabricacion || campos.fechaFabricacion || '']);
+            datos.push(['Nº de lote', campos.numeroLote || campos.lote || '']);
+            datos.push(['Fecha próxima revisión', revision.fechaProximaRevision || '']);
+        }
         const fila=(a,b)=>{doc.setDrawColor(120);doc.rect(M,y,50,6);doc.rect(M+50,y,140,6);doc.setFont(fuente,'bold');doc.setFontSize(7);doc.text(a,M+2,y+4);doc.setFont(fuente,'normal');doc.text(String(b||''),M+52,y+4);y+=6;};
         datos.forEach(x=>fila(x[0],x[1])); y+=4;
         doc.setFont(fuente,'bold');doc.setFontSize(8);doc.text('CONTROLES DE REVISIÓN',M,y);y+=5;
         const controles=config.controles||[];
         const mapa=revision.controles||{};
-        controles.forEach(item=>{const clave=item[0], nombre=item[1]; const c=mapa[clave]||{}; const texto=clave+"  "+nombre+"  ["+(c.resultado||config.resultadoControlDefault||'')+"]"; const lines=doc.splitTextToSize(texto, W-4); const h=Math.max(6,lines.length*3.2+2); if(y+h>282){doc.setFont(fuente,'normal');doc.setFontSize(6);doc.text('Página '+pagina,105,291,{align:'center'});doc.addPage();pagina++;y=15;} doc.rect(M,y,W,h);doc.setFont(fuente,'normal');doc.setFontSize(6.4);doc.text(lines,M+2,y+4);y+=h;});
+        controles.forEach(item=>{const clave=item[0], nombre=item[1]; const c=mapa[clave]||{}; const texto=clave+"  "+nombre+"  ["+(c.resultado||config.resultadoControlDefault||'')+"]"+(c.observaciones?"  Observaciones: "+c.observaciones:""); const lines=doc.splitTextToSize(texto, W-4); const h=Math.max(6,lines.length*3.2+2); if(y+h>282){doc.setFont(fuente,'normal');doc.setFontSize(6);doc.text('Página '+pagina,105,291,{align:'center'});doc.addPage();pagina++;y=15;} doc.rect(M,y,W,h);doc.setFont(fuente,'normal');doc.setFontSize(6.4);doc.text(lines,M+2,y+4);y+=h;});
         y+=4; if(y>275){doc.addPage();pagina++;y=15;}
         doc.setFont(fuente,'bold');doc.setFontSize(9);doc.text('VEREDICTO: '+String(revision.resultado||''),M,y);y+=6;
         if(revision.comentarios){doc.setFont(fuente,'bold');doc.setFontSize(7);doc.text('Comentarios',M,y);y+=4;doc.setFont(fuente,'normal');const l=doc.splitTextToSize(String(revision.comentarios),W);doc.text(l,M,y);y+=l.length*3.2+4;}
