@@ -17,7 +17,7 @@ async function appGasPost(payload) {
     const copia = Object.assign({}, payload || {});
     const esLogin = accion === "iniciarSesion";
     if (!esLogin) {
-        const token = sessionStorage.getItem("appAuditoriasSessionToken");
+        const token = localStorage.getItem("appAuditoriasSessionToken");
         if (!token) throw new Error("La sesión no está iniciada. Accede de nuevo a la aplicación.");
         copia.sessionToken = token;
     }
@@ -40,7 +40,7 @@ async function appGasPost(payload) {
     }
     if (!data.ok) {
         if (data.codigo === "SESION_CADUCADA" || data.codigo === "SESION_REQUERIDA" || data.codigo === "USUARIO_DESACTIVADO") {
-            sessionStorage.removeItem("appAuditoriasSessionToken");
+            localStorage.removeItem("appAuditoriasSessionToken");
             window.dispatchEvent(new CustomEvent("appAuditoriasSesionCaducada"));
         }
         throw new Error((data.error || "La BBDD devolvió un error.") + " [acción: " + accion + "]");
